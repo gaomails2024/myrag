@@ -222,6 +222,37 @@ main{padding:24px 20px; max-width:1180px; margin:0 auto}
 .tag.link{cursor:pointer}
 .tag.link:hover{color:var(--accent)}
 
+/* ============================================================ 关于弹窗（点左上角名称打开） */
+.brand{cursor:pointer}
+.brand:hover span{color:var(--accent)}
+.about{
+  position:fixed; inset:0; z-index:80;
+  display:flex; align-items:center; justify-content:center; padding:20px;
+  background:rgba(28,28,26,.34);
+  opacity:0; pointer-events:none; transition:opacity .18s ease;
+}
+.about.on{opacity:1; pointer-events:auto}
+.about-card{
+  width:min(430px,100%); max-height:86vh; overflow:auto;
+  background:var(--card-surface); border-radius:var(--radius);
+  padding:26px 28px 22px; box-shadow:0 20px 55px rgba(28,28,26,.24);
+  transform:translateY(10px);
+  transition:transform .2s cubic-bezier(.2,.7,.3,1);
+}
+.about.on .about-card{transform:none}
+.about-card h3{margin:0 0 4px; font-size:16px; font-weight:700; letter-spacing:-.015em}
+.about-card .sub{color:var(--text-3); font-size:12px; margin-bottom:20px}
+.about-card .rowline{display:flex; gap:12px; align-items:baseline;
+  padding:11px 0; border-bottom:1px solid var(--hair); font-size:13px}
+.about-card .rowline:last-of-type{border-bottom:0}
+.about-card .rowline .k{color:var(--text-3); font-size:10px; font-weight:700;
+  letter-spacing:.09em; text-transform:uppercase; width:66px; flex:none}
+.about-card .rowline .v{color:var(--text); word-break:break-all; line-height:1.6}
+.about-card .namein{display:flex; gap:8px}
+.about-card .namein .inp{flex:1}
+.about-card .hintline{color:var(--text-3); font-size:11.5px; margin-top:7px; line-height:1.6}
+.about-card .acts2{display:flex; gap:9px; margin-top:22px}
+
 /* 应用类卡片网格 */
 .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px}
 .acard{
@@ -404,9 +435,9 @@ details.spare .kvgrid{font-size:12.5px}
 
 <!-- ============================================================ 顶栏（模块 1） -->
 <header class="topbar">
-  <div class="brand">
+  <div class="brand" data-act="about" title="点击修改名称 / 查看项目信息">
     <svg class="ico" viewBox="0 0 24 24"><path d="M4 4.5h5.5A2.5 2.5 0 0 1 12 7v13a2.5 2.5 0 0 0-2.5-2.5H4z"/><path d="M20 4.5h-5.5A2.5 2.5 0 0 0 12 7v13a2.5 2.5 0 0 1 2.5-2.5H20z"/></svg>
-    <span>个人知识库</span>
+    <span id="brandName">个人知识库</span>
   </div>
   <form class="searchbox" id="searchForm" autocomplete="off">
     <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
@@ -473,6 +504,36 @@ details.spare .kvgrid{font-size:12.5px}
 </aside>
 
 <div class="lightbox" id="lightbox"><img alt="" id="lightboxImg"></div>
+
+<!-- ============================================================ 关于（点左上角名称打开） -->
+<div class="about" id="aboutBox">
+  <div class="about-card">
+    <h3>个人知识库</h3>
+    <div class="sub">本地优先：正文、配图、向量、数据库全部只在你自己的机器上</div>
+
+    <div class="field">
+      <label>顶栏名称（改完点保存；只存在本机浏览器）</label>
+      <div class="namein">
+        <input class="inp" id="aboutName" maxlength="20" placeholder="个人知识库">
+        <button class="btn primary" data-act="save-name">保存</button>
+      </div>
+      <div class="hintline">改的是显示名，不影响分类、编号与数据。</div>
+    </div>
+
+    <div style="margin-top:16px">
+      <div class="rowline"><span class="k">版本</span><span class="v" id="aboutVer">—</span></div>
+      <div class="rowline"><span class="k">许可证</span><span class="v">MIT</span></div>
+      <div class="rowline"><span class="k">仓库</span><span class="v" id="aboutRepo">尚未发布</span></div>
+      <div class="rowline"><span class="k">数据</span><span class="v">全部存在本机 · 不上传、不要账号</span></div>
+    </div>
+
+    <div class="acts2">
+      <button class="btn tiny" data-act="reset-name">恢复默认名称</button>
+      <div class="spacer"></div>
+      <button class="btn" data-act="close-about">关闭</button>
+    </div>
+  </div>
+</div>
 <div id="toast"></div>
 
 <script>
@@ -568,6 +629,72 @@ function delta(n){
   const s = String(n);
   return `<span class="chip"><b>${s}</b></span>`;
 }
+
+/* ================================================================ 应用名（顶栏显示名） */
+/* 存 localStorage：改的是「这台机器这个浏览器」的显示名，不动数据、不动分类。
+   想让它跨浏览器/跨设备一致，得挪到后端配置里去（现在没必要）。 */
+const APP_NAME_DEFAULT = '个人知识库';
+const APP_NAME_KEY = 'myrag_app_name';
+
+function appName(){
+  try { return localStorage.getItem(APP_NAME_KEY) || APP_NAME_DEFAULT; }
+  catch(e){ return APP_NAME_DEFAULT; }
+}
+function applyAppName(){
+  const n = appName();
+  const el = $('#brandName');
+  if (el) el.textContent = n;
+  document.title = n + ' · 工作台';
+}
+function saveAppName(v){
+  v = (v || '').trim().slice(0, 20);
+  try {
+    if (!v || v === APP_NAME_DEFAULT) localStorage.removeItem(APP_NAME_KEY);
+    else localStorage.setItem(APP_NAME_KEY, v);
+  } catch(e){ /* 隐私模式下 localStorage 可能不可写，忽略即可 */ }
+  applyAppName();
+  return appName();
+}
+
+/* ================================================================ 关于弹窗 */
+/* 发布后把仓库地址填这里，弹窗里的「仓库」就会变成可点链接。 */
+const REPO_URL = 'https://github.com/gaomails2024/myrag';
+
+async function openAbout(){
+  const box = $('#aboutBox');
+  if (!box) return;
+  $('#aboutName').value = appName();
+
+  const repo = $('#aboutRepo');
+  repo.innerHTML = REPO_URL
+    ? `<a href="${attr(REPO_URL)}" target="_blank" rel="noopener">${esc(REPO_URL)}</a>`
+    : '尚未发布';
+
+  $('#aboutVer').textContent = '读取中…';
+  try {
+    const h = await apiGet('/api/health');
+    $('#aboutVer').textContent = 'v' + (h.version || '?');
+  } catch(e){
+    $('#aboutVer').textContent = '后端未连接';
+  }
+  box.classList.add('on');
+  setTimeout(() => { const i = $('#aboutName'); if (i) i.focus(); }, 60);
+}
+function closeAbout(){
+  const box = $('#aboutBox');
+  if (box) box.classList.remove('on');
+}
+/* 点遮罩关闭、点卡片内部不关。
+   **不能用 data-stop** —— 事件委托里 `el.closest('[data-stop]')` 会直接 return，
+   那会连卡片里的「保存」按钮一起拦掉（已踩过）。 */
+(function bindAboutScrim(){
+  const box = $('#aboutBox');
+  if (!box) return;
+  box.addEventListener('click', ev => {
+    if (ev.target.closest('.about-card')) return;
+    closeAbout();
+  });
+})();
 
 /* ---- 网络 ---- */
 async function api(path, opts){
@@ -1786,6 +1913,28 @@ document.addEventListener('click', ev => {
   const id = el.dataset.id;
 
   switch(act){
+    /* ---- 关于弹窗（点左上角名称打开）---- */
+    case 'about':
+      ev.preventDefault();
+      openAbout();
+      break;
+
+    case 'close-about':
+      closeAbout();
+      break;
+
+    case 'save-name': {
+      const n = saveAppName($('#aboutName') ? $('#aboutName').value : '');
+      toast('名称已改为「' + n + '」');
+      closeAbout();
+      break;
+    }
+
+    case 'reset-name':
+      saveAppName('');
+      toast('已恢复默认名称「' + APP_NAME_DEFAULT + '」');
+      break;
+
     case 'tab':
       ev.preventDefault();
       switchView(el.dataset.view);
@@ -1918,6 +2067,7 @@ document.addEventListener('keydown', ev => {
 
 /* ================================================================ 启动 */
 (async function boot(){
+  applyAppName();                // 顶栏名称（可能被用户改过）先落地，避免闪一下默认名
   try {
     await loadCategories();      // 分类是页签与视图的前提，必须最先拿到
   } catch(e){
