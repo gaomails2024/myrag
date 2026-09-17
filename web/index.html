@@ -1,0 +1,1933 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>个人知识库 · 工作台</title>
+<style>
+/* ============================================================ 配色（跟随系统，PRD §10.4） */
+:root{
+  /* 固定浅色：纸灰底 + 炭黑墨。
+     用户明确要「浅色背景」，所以不再跟随系统深色模式（原来那套 dark 变量已移除）。 */
+  color-scheme: light;
+  --bg:#F0EFEB; --panel:#F0EFEB; --panel-2:#E8E6E0; --panel-3:#DEDDD6;
+  --border:#DEDDD6; --border-2:#B0AFA9;
+  --hair:#DEDDD6;              /* 发丝线：无边框分卡时的分隔线 */
+  --card-surface:#F6F5F2;      /* 卡片底：比页面亮一档，避免同色发飘 */
+  --text:#1C1C1A; --text-2:#6A6963; --text-3:#8F8E88;
+  --accent:#7E93A8; --accent-soft:#E7ECF0; --accent-line:#C3CDD5;
+  /* 分类配色板：**莫兰迪色系**（低饱和、带灰调）。
+     分类可增删，颜色按顺序取，不绑定具体分类名。 */
+  --c0:#7E93A8; --c0-soft:#E7ECF0;   /* 雾霾蓝 */
+  --c1:#7F9B87; --c1-soft:#E6EDE7;   /* 灰绿   */
+  --c2:#9B8FA8; --c2-soft:#EDE9F0;   /* 藕紫   */
+  --c3:#B98A6E; --c3-soft:#F2E8E1;   /* 陶土   */
+  --c4:#7FA0A3; --c4-soft:#E5EEEE;   /* 灰青   */
+  --c5:#BCAE7C; --c5-soft:#F1EEE1;   /* 芥黄   */
+  /* 语义色：结论徽章用。**独立于分类色板** —— 语义不该跟着分类顺序变。
+     比分类色深一档：「值得试」要当实心底，白字必须压得住。 */
+  --ok:#5F7A68; --ok-soft:#E4EBE5;
+  --warn:#8A7A4E; --warn-soft:#EFEBDE;
+  --danger:#A0685A; --danger-soft:#F1E6E2;
+  --shadow:none;
+  --radius:16px; --radius-s:10px;
+  /* hover 描边色：比 --border 清楚、比 --border-2 轻（border-2 反馈偏重） */
+  --hover-line:#C9C7BD;
+}
+
+/* ============================================================ 基础 */
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",
+       "Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent); text-decoration:none}
+a:hover{text-decoration:underline}
+button,input,select,textarea{font:inherit; color:inherit}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border-2); border-radius:6px; border:3px solid transparent; background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+svg{flex:none; display:block}
+.ico{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ============================================================ 顶栏 */
+.topbar{
+  position:sticky; top:0; z-index:40; background:var(--panel);
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:center; gap:14px;
+  padding:10px 18px; flex-wrap:wrap;
+}
+.brand{display:flex; align-items:center; gap:8px; font-weight:650; letter-spacing:.2px; white-space:nowrap}
+.brand .ico{width:18px;height:18px;color:var(--accent)}
+.searchbox{
+  flex:1 1 320px; min-width:240px; display:flex; align-items:center;
+  background:var(--panel-2); border:1px solid var(--border);
+  border-radius:var(--radius); padding:0 4px 0 10px; gap:6px; height:38px;
+}
+.searchbox:focus-within{border-color:var(--accent-line); background:var(--panel)}
+.searchbox .ico{color:var(--text-3)}
+.searchbox input{
+  flex:1; min-width:0; background:none; border:0; outline:none; height:100%;
+}
+.searchbox input::placeholder{color:var(--text-3)}
+.searchbox select{
+  background:var(--panel-3); border:1px solid var(--border); border-radius:var(--radius-s);
+  height:28px; padding:0 6px; outline:none; color:var(--text-2); font-size:13px;
+}
+.btn{
+  display:inline-flex; align-items:center; gap:6px; justify-content:center;
+  height:30px; padding:0 12px; border-radius:var(--radius-s);
+  border:1px solid var(--border-2); background:var(--panel); color:var(--text);
+  cursor:pointer; white-space:nowrap; font-size:13px;
+}
+.btn:hover{background:var(--panel-2)}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.danger{color:var(--danger); border-color:var(--border-2)}
+.btn.danger:hover{background:var(--danger-soft); border-color:var(--danger)}
+.btn.tiny{height:26px; padding:0 9px; font-size:12px}
+.btn[disabled]{opacity:.5; cursor:not-allowed}
+.chips{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.chip{
+  display:inline-flex; align-items:center; gap:5px; height:26px; padding:0 9px;
+  border-radius:99px; background:var(--panel-2); border:1px solid var(--border);
+  color:var(--text-2); font-size:12px; white-space:nowrap;
+}
+.chip b{color:var(--text); font-weight:600}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.chip .dot.off{background:var(--warn)}
+
+/* ============================================================ 页签 */
+.tabs{
+  display:flex; gap:2px; padding:8px 18px 0; overflow-x:auto;
+  background:var(--bg); border-bottom:1px solid var(--hair);
+  position:sticky; top:59px; z-index:30;
+}
+.tabs::-webkit-scrollbar{height:0}
+.tab{
+  display:inline-flex; align-items:center; gap:7px; padding:9px 14px;
+  border-radius:var(--radius-s) var(--radius-s) 0 0; cursor:pointer;
+  color:var(--text-2); border-bottom:2px solid transparent; white-space:nowrap;
+  background:none; border-left:0;border-right:0;border-top:0; font-size:13px;
+  transition:color .16s cubic-bezier(.2,.7,.3,1);
+}
+.tab:hover{color:var(--text); background:var(--panel-2)}
+.tab.on{color:var(--text); border-bottom-color:var(--text); font-weight:700}
+.tab .badge-n{
+  background:var(--warn); color:#FFFDF8; border-radius:99px;
+  padding:1px 7px; font-size:10.5px; font-weight:700; line-height:16px;
+}
+
+/* ============================================================ 布局 */
+main{padding:24px 20px; max-width:1180px; margin:0 auto}
+.view{display:none}
+.view.on{display:block}
+/* 区块标题：小号 + 字距，像杂志栏目名，不跟内容抢重量 */
+.sec-head{display:flex; align-items:center; gap:10px; margin:0 0 16px; flex-wrap:wrap}
+.sec-head h2{margin:0; font-size:12px; font-weight:700; letter-spacing:.08em;
+  color:var(--text-3)}
+.sec-head .sub{color:var(--text-3); font-size:12.5px}
+.spacer{flex:1}
+/* 分卡不靠边框与阴影，靠底色差一档 + 留白 */
+.panel{
+  background:var(--card-surface); border:0;
+  border-radius:var(--radius); box-shadow:none;
+}
+.panel + .panel, .panel + .stack, .stack + .panel{margin-top:16px}
+.panel-pad{padding:22px 24px}
+.muted{color:var(--text-3)}
+.empty{padding:34px 16px; text-align:center; color:var(--text-3)}
+
+/* 概览卡片 */
+.cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px}
+.card{
+  background:var(--card-surface); border:0; border-radius:var(--radius);
+  padding:20px 22px; cursor:pointer; box-shadow:none; text-align:left;
+  transition:box-shadow .18s cubic-bezier(.2,.7,.3,1);
+}
+/* 与其他卡片一致：hover 只描边，不改底色 */
+.card:hover{box-shadow:inset 0 0 0 1px var(--hover-line)}
+.card .k{display:flex; align-items:center; gap:6px; color:var(--text-3);
+  font-size:11px; font-weight:700; letter-spacing:.08em}
+/* 数字是主数据，给最大字重与最紧字距（明度/字重即层级） */
+.card .v{font-size:34px; font-weight:800; line-height:1.15; margin:8px 0 2px;
+  font-variant-numeric:tabular-nums; letter-spacing:-.02em}
+.card .foot{color:var(--text-3); font-size:11.5px; margin-top:2px}
+.card.c-warn .v{color:var(--warn)}
+
+/* 趋势条 */
+.trend{display:flex; align-items:flex-end; gap:10px; height:112px; padding:6px 2px 0}
+.trend .col{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; height:100%}
+.trend .bar{
+  width:100%; max-width:44px; min-height:4px; border-radius:99px 99px 3px 3px;
+  background:var(--accent);   /* 石青色，与顶栏搜索按钮同色 */
+}
+.trend .bar.zero{background:var(--panel-3)}
+.trend .n{font-size:12px; color:var(--text-2); font-variant-numeric:tabular-nums;
+  font-weight:700}
+.trend .d{font-size:10.5px; color:var(--text-3)}
+
+/* 列表 */
+.rows{display:flex; flex-direction:column}
+.row{
+  display:flex; gap:18px; align-items:flex-start; padding:22px 26px;
+  border-bottom:1px solid var(--hair);
+  transition:box-shadow .18s cubic-bezier(.2,.7,.3,1);
+}
+.row:last-child{border-bottom:0}
+/* hover 只描一圈深色边框：不铺底色、也不改标题色（改色会让整行跳一下） */
+.row:hover{box-shadow:inset 0 0 0 1px var(--hover-line)}
+.row .grow{flex:1; min-width:0}
+.row .t{
+  font-size:15.5px; font-weight:700; letter-spacing:-.012em; line-height:1.5; margin:0 0 7px;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+.row .m{color:var(--text-3); font-size:11px; font-weight:500; letter-spacing:.02em;
+  display:flex; gap:11px; flex-wrap:wrap; align-items:center}
+.row .s{color:var(--text-2); font-size:13.5px; line-height:1.8; margin-top:9px;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+.row.clickable{cursor:pointer}
+.row.clickable .t{color:var(--text)}
+.row .acts{display:flex; gap:6px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
+
+/* 徽章：一律胶囊、无边框 */
+.bdg{
+  display:inline-flex; align-items:center; gap:4px; padding:3px 11px;
+  border-radius:99px; font-size:11px; font-weight:600; white-space:nowrap;
+  border:0;
+}
+.bdg.warn{background:var(--warn-soft); color:var(--warn)}
+.bdg.ok{background:var(--ok-soft); color:var(--ok)}
+.bdg.bad{background:var(--danger-soft); color:var(--danger)}
+.bdg.ghost{background:var(--panel-2); color:var(--text-2)}
+/* 结论徽章：「值得试」要一眼看见，其余两个保持低调（不值得的结论不该抢注意力） */
+.bdg.vtry{background:var(--ok); color:#FFFDF8; font-weight:700}
+.bdg.vtry::before{content:'✓'; margin-right:4px; font-weight:700}
+.bdg.vwatch{background:var(--warn-soft); color:var(--warn)}
+.bdg.vwatch::before{content:'·'; margin-right:4px}
+.bdg.vdead{background:var(--danger-soft); color:var(--danger)}
+.bdg.vdead::before{content:'✕'; margin-right:4px}
+/* 卡片左侧色条：扫列表时不必逐个读徽章 */
+.acard.v-try{border-left:2px solid var(--ok)}
+.acard.v-watch{border-left:2px solid var(--warn)}
+.acard.v-dead{border-left:2px solid var(--danger)}
+.tagline{display:flex; gap:5px; flex-wrap:wrap; margin-top:8px}
+.tag{
+  font-size:11px; color:var(--text-2); background:var(--panel-2);
+  border:0; border-radius:99px; padding:3px 11px;
+}
+.tag.link{cursor:pointer}
+.tag.link:hover{color:var(--accent)}
+
+/* 应用类卡片网格 */
+.grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px}
+.acard{
+  background:var(--card-surface); border:0; border-radius:var(--radius);
+  padding:22px 24px 20px; box-shadow:none; cursor:pointer;
+  display:flex; flex-direction:column; gap:13px;
+  border-left:2px solid transparent;
+  transition:background .18s cubic-bezier(.2,.7,.3,1);
+}
+/* hover 只描一圈深色边框，不改底色 —— 整片变深太重，会把卡片压死 */
+.acard:hover{box-shadow:inset 0 0 0 1px var(--hover-line)}
+.acard .t{font-size:15.5px; font-weight:700; letter-spacing:-.012em; line-height:1.5;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+/* 键值对：标签退成「来源行」（小号 + 字距），值升为主墨色 */
+.acard .kv{display:grid; grid-template-columns:auto 1fr; gap:8px 14px}
+.acard .kv .k{color:var(--text-3); font-size:10px; font-weight:700;
+  letter-spacing:.09em; padding-top:3px}
+.acard .kv .v{color:var(--text); font-size:13px; line-height:1.5; word-break:break-all}
+.acard .kv .v.num{font-weight:800; font-variant-numeric:tabular-nums;
+  font-size:14.5px; letter-spacing:-.015em}
+.acard .top{display:flex; align-items:center; gap:8px; justify-content:space-between}
+/* 核查状态：小号大写字距（同「来源行」） */
+.acard .foot{font-size:10px; font-weight:700; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--text-3); margin-top:auto}
+
+/* 表单 */
+.form{display:grid; gap:12px}
+.field{display:grid; gap:6px}
+.field > label{font-size:12.5px; color:var(--text-2)}
+.inp, .ta, .sel{
+  width:100%; background:var(--panel-2); border:1px solid var(--border);
+  border-radius:var(--radius-s); padding:8px 10px; outline:none;
+}
+.inp:focus,.ta:focus,.sel:focus{border-color:var(--accent-line); background:var(--panel)}
+.ta{resize:vertical; min-height:220px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; line-height:1.65}
+.seg{display:inline-flex; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius-s); padding:2px; gap:2px}
+.seg button{
+  border:0; background:none; padding:4px 12px; border-radius:5px; cursor:pointer;
+  color:var(--text-2); font-size:13px;
+}
+.seg button.on{background:var(--panel); color:var(--text); font-weight:600; box-shadow:var(--shadow)}
+.row2{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+@media (max-width:640px){ .row2{grid-template-columns:1fr} }
+
+/* ============================================================ 详情抽屉 */
+.scrim{
+  position:fixed; inset:0; background:rgba(10,12,16,.42); z-index:60;
+  opacity:0; pointer-events:none; transition:opacity .18s ease;
+}
+.scrim.on{opacity:1; pointer-events:auto}
+.drawer{
+  position:fixed; top:0; right:0; bottom:0; width:min(760px,100%); z-index:61;
+  background:var(--bg); border-left:1px solid var(--hair);
+  transform:translateX(102%); transition:transform .22s cubic-bezier(.3,.8,.3,1);
+  display:flex; flex-direction:column;
+}
+.drawer.on{transform:none}
+.dhead{
+  padding:18px 22px; border-bottom:1px solid var(--hair); background:var(--bg);
+  display:flex; gap:10px; align-items:flex-start;
+}
+.dhead .t{font-size:17px; font-weight:700; letter-spacing:-.012em; line-height:1.45; margin:0}
+.dhead .m{color:var(--text-3); font-size:11px; letter-spacing:.02em; margin-top:6px;
+  display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+.dbody{flex:1; overflow:auto; padding:20px}
+.dfoot{
+  border-top:1px solid var(--hair); background:var(--bg); padding:12px 22px;
+  display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+}
+.block{background:var(--card-surface); border:0; border-radius:var(--radius); padding:22px 24px; margin-bottom:14px}
+.block h3{margin:0 0 10px; font-size:13px; font-weight:650; color:var(--text-2); letter-spacing:.3px}
+.kvgrid{display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:13px}
+.kvgrid .k{color:var(--text-3)}
+.kvgrid .v{word-break:break-word}
+.thumbs{display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:9px}
+.thumbs img{
+  width:100%; height:112px; object-fit:cover; border-radius:var(--radius-s);
+  border:1px solid var(--border); background:var(--panel-2); cursor:zoom-in;
+}
+/* Markdown 正文 */
+.md{font-size:14.5px; line-height:1.85; word-wrap:break-word}
+.md > :first-child{margin-top:0}
+.md h1{font-size:20px; margin:26px 0 12px; line-height:1.4}
+.md h2{font-size:17.5px; margin:24px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--border); line-height:1.4}
+.md h3{font-size:15.5px; margin:20px 0 8px}
+.md h4{font-size:14.5px; margin:16px 0 6px; color:var(--text-2)}
+.md p{margin:11px 0}
+.md img{max-width:100%; height:auto; border-radius:var(--radius-s); border:1px solid var(--border); margin:12px 0; background:var(--panel-2)}
+.md ul,.md ol{padding-left:22px; margin:11px 0}
+.md li{margin:5px 0}
+.md blockquote{
+  margin:12px 0; padding:8px 14px; border-left:3px solid var(--accent-line);
+  background:var(--panel); border-radius:0 var(--radius-s) var(--radius-s) 0; color:var(--text-2);
+}
+.md code{
+  background:var(--panel-3); padding:1.5px 5px; border-radius:4px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px;
+}
+.md pre{background:var(--panel-3); padding:12px; border-radius:var(--radius-s); overflow:auto; border:1px solid var(--border)}
+.md pre code{background:none; padding:0}
+.md table{border-collapse:collapse; width:100%; margin:12px 0; font-size:13px; display:block; overflow:auto}
+.md th,.md td{border:1px solid var(--border); padding:6px 10px; text-align:left}
+.md th{background:var(--panel-2); font-weight:600}
+.md hr{border:0; border-top:1px solid var(--border); margin:20px 0}
+.md a{word-break:break-all}
+.chunkitem{border:1px solid var(--border); border-radius:var(--radius-s); margin-bottom:8px; background:var(--panel-2)}
+.chunkitem summary{cursor:pointer; padding:8px 11px; font-size:12.5px; color:var(--text-2); display:flex; gap:8px; align-items:center}
+.chunkitem summary::-webkit-details-marker{display:none}
+.chunkitem .ctext{padding:0 11px 11px; font-size:13px; color:var(--text-2); white-space:pre-wrap; line-height:1.75; border-top:1px solid var(--border); padding-top:10px; margin-top:2px}
+
+/* ---- 详情：按信息价值分层 ---- */
+/* 摘要：人最该先看到的东西，字号给足 */
+.sum{font-size:15px; line-height:1.9; color:var(--text)}
+.sum em{font-style:normal; color:var(--text-3)}
+/* 项目实况：仓库/star/license 一行扫完，次要信息降为灰字一行 */
+.repo-head{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.repo-head .name{font-size:15px; font-weight:600}
+.repo-sub{color:var(--text-3); font-size:12.5px; margin-top:7px; display:flex; gap:12px; flex-wrap:wrap}
+/* 真正要读的两项：能力边界 / 部署条件 */
+.repo-key{display:grid; grid-template-columns:auto 1fr; gap:9px 14px; margin-top:13px; font-size:13.5px}
+.repo-key .k{color:var(--text-3); white-space:nowrap}
+.repo-key .v{line-height:1.8; word-break:break-word}
+/* 备查信息：编号/底本/时间戳这类，默认收起 */
+details.spare{
+  border:1px solid var(--border); border-radius:var(--radius);
+  background:var(--panel); margin-bottom:14px;
+}
+details.spare > summary{
+  cursor:pointer; padding:11px 14px; font-size:13px; color:var(--text-3);
+  list-style:none; display:flex; align-items:center; gap:7px;
+}
+details.spare > summary::-webkit-details-marker{display:none}
+details.spare > summary::before{content:'▸'; font-size:11px; transition:transform .15s ease}
+details.spare[open] > summary::before{transform:rotate(90deg)}
+details.spare .inner{padding:2px 14px 14px; border-top:1px solid var(--border); margin-top:2px; padding-top:12px}
+details.spare .kvgrid{font-size:12.5px}
+/* 标签按钮的"当前筛选"态 */
+.tag.on{background:var(--accent-soft); color:var(--accent); border-color:var(--accent-line)}
+
+/* 检索命中 */
+.hit{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin-bottom:11px; box-shadow:var(--shadow)}
+.hit .hh{display:flex; gap:9px; align-items:baseline; flex-wrap:wrap}
+.hit .ht{font-size:14.5px; font-weight:600; line-height:1.45}
+.hit .score{color:var(--text-3); font-size:12px; font-variant-numeric:tabular-nums; margin-left:auto}
+.hit .hm{color:var(--text-3); font-size:12.5px; margin-top:4px}
+.mc{margin-top:10px; border-top:1px dashed var(--border); padding-top:9px; display:grid; gap:9px}
+.mc .mp{font-size:12px; color:var(--accent); margin-bottom:3px}
+.mc .mt{font-size:13px; color:var(--text-2); line-height:1.7}
+.mc .mr{font-size:11.5px; color:var(--text-3); margin-top:3px; display:flex; gap:10px}
+
+/* 灯箱 */
+.lightbox{
+  position:fixed; inset:0; z-index:80; background:rgba(6,8,11,.9);
+  display:none; align-items:center; justify-content:center; padding:28px; cursor:zoom-out;
+}
+.lightbox.on{display:flex}
+.lightbox img{max-width:100%; max-height:100%; border-radius:6px}
+
+/* 提示条 */
+.banner{
+  display:flex; gap:9px; align-items:flex-start; padding:11px 14px; border-radius:var(--radius);
+  background:var(--danger-soft); color:var(--danger); border:1px solid var(--danger-soft);
+  margin-bottom:16px; font-size:13px;
+}
+.banner code{background:rgba(0,0,0,.08); padding:1px 5px; border-radius:4px}
+/* 说明型提示条：淡白底，与页面大背景同系，不抢注意力（区别于红底的错误提示） */
+.banner.tip{background:var(--card-surface); color:var(--text-2); border-color:transparent}
+#toast{
+  position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px);
+  background:var(--text); color:var(--bg); padding:9px 16px; border-radius:99px;
+  font-size:13px; opacity:0; pointer-events:none; transition:all .2s ease; z-index:90;
+  max-width:min(560px,92vw); text-align:center;
+}
+#toast.on{opacity:1; transform:translateX(-50%)}
+.spin{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ============================================================ 顶栏（模块 1） -->
+<header class="topbar">
+  <div class="brand">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M4 4.5h5.5A2.5 2.5 0 0 1 12 7v13a2.5 2.5 0 0 0-2.5-2.5H4z"/><path d="M20 4.5h-5.5A2.5 2.5 0 0 0 12 7v13a2.5 2.5 0 0 1 2.5-2.5H20z"/></svg>
+    <span>个人知识库</span>
+  </div>
+  <form class="searchbox" id="searchForm" autocomplete="off">
+    <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+    <input id="q" placeholder="按意思搜，例如：怎么防止 Agent 乱改文件">
+    <select id="mode" title="检索方式">
+      <option value="hybrid">融合</option>
+      <option value="dense">语义</option>
+      <option value="sparse">关键词</option>
+    </select>
+    <button class="btn primary" type="submit" style="margin-right:2px">搜索</button>
+  </form>
+  <div class="chips" id="topStats"></div>
+</header>
+
+<!-- ============================================================ 页签 -->
+<nav class="tabs" id="tabs">
+  <button class="tab on" data-act="tab" data-view="overview">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 8h6V4h-6z"/></svg>概览
+  </button>
+  <button class="tab" data-act="tab" data-view="review">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M12 3.5 21 19H3z"/><path d="M12 9.5v4M12 16.2v.3"/></svg>待复核<span class="badge-n" id="tabReview" hidden>0</span>
+  </button>
+  <!-- 分类页签由 renderTabs() 按 /api/categories 动态插入：分类可增删，不能写死 -->
+  <button class="tab" data-act="tab" data-view="add">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg>手工补录
+  </button>
+  <button class="tab" data-act="tab" data-view="settings">
+    <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M4.5 12c0-.4.04-.8.1-1.2L2.6 9.3l2-3.5 2.3 1a7.6 7.6 0 0 1 2-1.2L9.3 3h4l.4 2.6a7.6 7.6 0 0 1 2 1.2l2.3-1 2 3.5-2 1.5c.06.4.1.8.1 1.2s-.04.8-.1 1.2l2 1.5-2 3.5-2.3-1a7.6 7.6 0 0 1-2 1.2L13.3 21h-4l-.4-2.6a7.6 7.6 0 0 1-2-1.2l-2.3 1-2-3.5 2-1.5c-.06-.4-.1-.8-.1-1.2z"/></svg>分类设置
+  </button>
+  <button class="tab" data-act="tab" data-view="rules">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M5 4.5h14v15H5z"/><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4"/></svg>入库规则
+  </button>
+  <button class="tab" data-act="tab" data-view="search" id="tabSearch" hidden>
+    <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>检索结果
+  </button>
+</nav>
+
+<main>
+  <div id="offline" hidden></div>
+  <section class="view on" id="view-overview"></section>
+  <section class="view" id="view-review"></section>
+  <!-- 各分类视图由 renderTabs() 动态插入：id = view-cat-<key> -->
+  <section class="view" id="view-add"></section>
+  <section class="view" id="view-settings"></section>
+  <section class="view" id="view-search"></section>
+  <section class="view" id="view-tag"></section>
+  <section class="view" id="view-rules"></section>
+</main>
+
+<!-- ============================================================ 详情抽屉（模块 8） -->
+<div class="scrim" id="scrim" data-act="close-drawer"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="dhead">
+    <div class="grow" style="flex:1;min-width:0">
+      <h2 class="t" id="dTitle">—</h2>
+      <div class="m" id="dMeta"></div>
+    </div>
+    <button class="btn" data-act="close-drawer" title="关闭">
+      <svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="dbody" id="dBody"></div>
+  <div class="dfoot" id="dFoot"></div>
+</aside>
+
+<div class="lightbox" id="lightbox"><img alt="" id="lightboxImg"></div>
+<div id="toast"></div>
+
+<script>
+/* ================================================================
+   MyRag 工作台（PRD §10）
+   - 单文件、内联 CSS/JS、无构建、无外部 CDN
+   - 只读/写本地后端；后端不抓取、不调 LLM，本页也不做这两件事
+   ================================================================ */
+
+/* ---- 后端地址：留空 = 同源 ----
+   页面本身就是后端发出来的，同源调用最稳：换端口、换主机都自动跟随，不用改前端。
+   只有把页面单独托管到别处时，才需要填完整地址，如 'http://127.0.0.1:8765'。 */
+const API_BASE = '';
+
+const VERDICT = {
+  try:   { t:'值得试', c:'vtry' },
+  watch: { t:'观望',   c:'vwatch' },
+  dead:  { t:'已死',   c:'vdead' }
+};
+
+/* 分类不写死：启动时从 /api/categories 拉取存进 state.cats。
+   页签、徽章、视图、改类按钮、补录选项、判类标准全部由它驱动 —— */
+const state = {
+  view:'overview',
+  cats:[],            // [{key,name,prefix,criteria,retrieval,features,is_default,sort_order,count}]
+  catMap:{},          // key → 分类对象
+  sub:{},             // 分类视图内的子页签（目前只有 concepts 用）
+  search:{ q:'', mode:'hybrid' },
+  tag:null,           // 正在按标签筛选的词
+  // 列表排序：'desc' = 入库时间最新在前（默认），'asc' = 最早在前。
+  // 存在 localStorage 里，刷新后保持用户的选择。
+  order:(function(){ try { return localStorage.getItem('myrag_order') || 'desc'; }
+                      catch(e){ return 'desc'; } })(),
+  stats:null,
+  detail:null,
+  // 以下三项由 loadCategories() 从 /api/categories 填充
+  retrievalModes:[],
+  featureDefs:[],
+  displayModes:[]
+};
+
+/* ================================================================ 工具 */
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.prototype.slice.call((r || document).querySelectorAll(s));
+
+function esc(v){
+  if (v === null || v === undefined) return '';
+  return String(v).replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function attr(v){ return esc(v).replace(/"/g,'&quot;'); }
+
+function d10(s){ return s ? String(s).slice(0,10) : ''; }
+function dt(s){
+  if (!s) return '';
+  return String(s).replace('T',' ').slice(0,16);
+}
+function bytes(n){
+  n = Number(n) || 0;
+  const u = ['B','KB','MB','GB']; let i = 0;
+  while (n >= 1024 && i < u.length-1){ n /= 1024; i++; }
+  return (i === 0 ? n : n.toFixed(1)) + ' ' + u[i];
+}
+/* ---- 分类辅助（全部读 state.cats，无写死分类名）---- */
+function catOf(k){ return state.catMap[k] || null; }
+function catName(k){ const c = catOf(k); return c ? c.name : k; }
+function catIndex(k){
+  let i = state.cats.findIndex(c => c.key === k);
+  return (i < 0 ? 0 : i) % 6;
+}
+function hasFeature(k, f){ const c = catOf(k); return !!(c && (c.features || []).includes(f)); }
+function isRagCat(k){ const c = catOf(k); return !c || c.retrieval !== 'fulltext'; }
+function catFoot(c){
+  const bits = [];
+  if ((c.features || []).includes('repo_card')) bits.push('GitHub 核查');
+  if ((c.features || []).includes('concepts'))  bits.push('概念互链');
+  bits.push(c.retrieval === 'fulltext' ? '不建索引' : 'RAG 检索');
+  return bits.join(' · ');
+}
+function catBadge(c){
+  const i = catIndex(c);
+  /* 文字色 = 莫兰迪色与墨色混合。莫兰迪色本身偏淡，直接当文字色对比度不够；
+     混入墨色后既保留色相、又压得住底。 */
+  return `<span class="bdg" style="background:var(--c${i}-soft);` +
+         `color:color-mix(in srgb, var(--c${i}) 62%, #1C1C1A)">${esc(catName(c))}</span>`;
+}
+function verdictBadge(v){
+  const d = VERDICT[v];
+  if (!d) return '<span class="bdg ghost">未定结论</span>';
+  return `<span class="bdg ${d.c}">${d.t}</span>`;
+}
+function delta(n){
+  const s = String(n);
+  return `<span class="chip"><b>${s}</b></span>`;
+}
+
+/* ---- 网络 ---- */
+async function api(path, opts){
+  const res = await fetch(API_BASE + path, opts);
+  let body = null;
+  const txt = await res.text();
+  try { body = txt ? JSON.parse(txt) : null; } catch(e){ body = { raw: txt }; }
+  if (!res.ok && !(body && body.dup)) {
+    const detail = body && body.detail
+      ? (typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail))
+      : ('HTTP ' + res.status);
+    throw new Error(detail);
+  }
+  return body;
+}
+const apiGet  = p => api(p);
+const apiJson = (p, method, body) => api(p, {
+  method, headers:{ 'Content-Type':'application/json' },
+  body: body === undefined ? undefined : JSON.stringify(body)
+});
+
+/* ---- 提示 ---- */
+let toastTimer = null;
+function toast(msg, ms){
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), ms || 2600);
+}
+function showErr(e){ toast('失败：' + (e && e.message ? e.message : e), 4200); console.error(e); }
+
+/* ================================================================ 顶栏统计 + 离线提示 */
+async function loadHealth(){
+  try {
+    const h = await apiGet('/api/health');
+    const ok = !!h.model_ready;
+    $('#topStats').innerHTML =
+      `<span class="chip"><span class="dot ${ok?'':'off'}"></span>${ok?'模型就绪':'模型加载中'}</span>` +
+      `<span class="chip">v${esc(h.version)}</span>`;
+    $('#offline').hidden = true;
+  } catch(e){
+    $('#offline').hidden = false;
+    $('#offline').innerHTML =
+      `<div class="banner">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M12 3.5 21 19H3z"/><path d="M12 9.5v4M12 16.2v.3"/></svg>
+        <div><b>连不上本地后端</b>（${esc(API_BASE)}）。先在终端执行：
+        <code>~/Documents/MyRag/scripts/start.sh</code>，再刷新本页。</div>
+      </div>`;
+    $('#topStats').innerHTML = `<span class="chip"><span class="dot off"></span>后端离线</span>`;
+  }
+}
+
+/* ================================================================ 分类装载与页签（动态） */
+/* 分类可增删，页签与视图容器都不能写死在 HTML 里，一律按 /api/categories 生成。 */
+async function loadCategories(){
+  const r = await apiGet('/api/categories');
+  state.cats = r.items || [];
+  state.catMap = {};
+  state.cats.forEach(c => { state.catMap[c.key] = c; });
+  state.retrievalModes = r.retrieval_modes || [];
+  state.featureDefs = r.features || [];
+  state.displayModes = r.display_modes || [];
+  renderTabs();
+}
+
+const TAB_ICON = '<svg class="ico" viewBox="0 0 24 24">' +
+  '<path d="M4 7.5 12 4l8 3.5-8 3.5z"/><path d="M4 12.5 12 16l8-3.5M4 16.5 12 20l8-3.5"/></svg>';
+
+function renderTabs(){
+  const nav = $('#tabs');
+  const main = $('main');
+  $$('.tab[data-cat-tab]', nav).forEach(el => el.remove());
+  $$('section[data-cat-view]', main).forEach(el => el.remove());
+
+  const searchTab = $('#tabSearch');
+  const addView = $('#view-add');
+
+  state.cats.forEach(c => {
+    const btn = document.createElement('button');
+    btn.className = 'tab';
+    btn.dataset.act = 'tab';
+    btn.dataset.view = 'cat-' + c.key;
+    btn.dataset.catTab = '1';
+    btn.innerHTML = TAB_ICON + esc(c.name) +
+      ` <span class="muted" style="font-size:11.5px">${c.count || 0}</span>`;
+    nav.insertBefore(btn, searchTab);
+
+    const sec = document.createElement('section');
+    sec.className = 'view';
+    sec.id = 'view-cat-' + c.key;
+    sec.dataset.catView = '1';
+    main.insertBefore(sec, addView);
+  });
+
+  // 当前停留的分类被删掉时，退回概览，不留白屏
+  if (state.view.indexOf('cat-') === 0 && !$('#view-' + state.view)) switchView('overview');
+}
+
+/* 排序切换：按入库时间「最新在前 / 最早在前」。
+   所有列表（各分类、标签结果、待复核）共用同一个偏好，并记在 localStorage 里。 */
+function orderSwitch(){
+  return `<div class="seg" title="按入库时间排序">
+    <button data-act="set-order" data-order="desc" class="${state.order === 'desc' ? 'on' : ''}">最新在前</button>
+    <button data-act="set-order" data-order="asc" class="${state.order === 'asc' ? 'on' : ''}">最早在前</button>
+  </div>`;
+}
+function orderArg(){
+  return '&order=' + encodeURIComponent(state.order);
+}
+
+/* 展示样式：分类设置里显式指定；留空则按能力项自动推导（保持老行为） */
+function displayOf(cat){
+  if (cat && cat.display) return cat.display;
+  if (cat && (cat.features || []).includes('repo_card')) return 'cards';
+  return 'list';
+}
+
+function renderCategory(key){
+  const cat = catOf(key);
+  const box = $('#view-cat-' + key);
+  if (!cat || !box) return;
+
+  const d = displayOf(cat);
+  if (d === 'cards')   return renderRepoCategory(key, box);
+  if (d === 'compact') return renderCompactCategory(key, box);
+  // 列表样式下，带「概念互链」能力的分类多给一个子页签
+  if ((cat.features || []).includes('concepts')) return renderConceptCategory(key, box);
+  return renderListCategory(key, box);
+}
+
+/* ---- 列表行的指标：随该分类的能力项变化，不写死分类名 ---- */
+function catMetrics(a, cat){
+  const feats = (cat && cat.features) || [];
+  const bits = [];
+  if (feats.includes('repo_card')){
+    if (a.repo_url) bits.push(repoLabel(a.repo_url));
+    if (a.stars != null) bits.push('★ ' + Number(a.stars).toLocaleString());
+    if (a.license) bits.push(a.license);
+  }
+  if (feats.includes('concepts')){
+    if (a.concept_count) bits.push(a.concept_count + ' 个概念');
+    if (a.chunk_count) bits.push('切 ' + Math.max(0, a.chunk_count - 1) + ' 段');
+  }
+  if (cat && !isRagCat(cat.key)) bits.push('未建索引');
+  return bits;
+}
+
+/* 列表行：标题 → 摘要 → 指标/元信息 → 标签（同一套层次，指标随分类变） */
+function listRowHtml(a, cat){
+  const metrics = catMetrics(a, cat);
+  return `
+    <div class="row clickable" data-act="detail" data-id="${attr(a.id)}">
+      <div class="grow">
+        <div class="t">${esc(a.title)}</div>
+        ${a.summary ? `<div class="s">${esc(a.summary)}</div>` : ''}
+        <div class="m">
+          ${catBadge(cat.key)}
+          ${a.review_flag ? '<span class="bdg warn">待复核</span>' : ''}
+          ${metrics.map(x => `<span>${esc(x)}</span>`).join('')}
+          <span>${esc(a.source || '来源未知')}</span>
+          <span>${esc(d10(a.published_at || a.collected_at))}</span>
+        </div>
+        ${(a.tags && a.tags.length) ? `<div class="tagline">${a.tags.map(t =>
+          `<span class="tag link" data-act="tag" data-tag="${attr(t)}" title="看所有带此标签的文章">${esc(t)}</span>`).join('')}</div>` : ''}
+      </div>
+      <div class="acts">
+        <button class="btn tiny" data-act="detail" data-id="${attr(a.id)}">详情</button>
+        ${a.url ? `<a class="btn tiny" href="${attr(a.url)}" target="_blank" rel="noopener" data-stop="1">原文</a>` : ''}
+      </div>
+    </div>`;
+}
+
+/* 紧凑行：只留标题与出处，适合量大的归档类 */
+function compactRowHtml(a, cat){
+  return `
+    <div class="row clickable" data-act="detail" data-id="${attr(a.id)}">
+      <div class="grow">
+        <div class="t">${esc(a.title)}</div>
+        <div class="m">
+          ${catBadge(cat.key)}
+          ${a.review_flag ? '<span class="bdg warn">待复核</span>' : ''}
+          <span>${esc(a.source || '来源未知')}</span>
+          <span>${esc(d10(a.published_at || a.collected_at))}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ================================================================ 模块 2：概览 */
+async function renderOverview(){
+  const box = $('#view-overview');
+  box.innerHTML = `<div class="empty">加载中…</div>`;
+  let s;
+  try { s = await apiGet('/api/stats'); }
+  catch(e){ box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+  state.stats = s;
+
+  const c = s.counts || {};
+  const max = Math.max(1, ...(s.last7 || []).map(d => d.count));
+  const trend = (s.last7 || []).map(d => `
+    <div class="col" title="${esc(d.date)} 入库 ${d.count} 条">
+      <div class="n">${d.count}</div>
+      <div class="bar ${d.count === 0 ? 'zero' : ''}" style="height:${Math.round(d.count / max * 62) + 4}%"></div>
+      <div class="d">${esc(d.date.slice(5))}</div>
+    </div>`).join('');
+
+  const idx = s.index || {};
+  box.innerHTML = `
+    <div class="sec-head">
+      <h2>库体量</h2>
+      <span class="sub">本地 SQLite · 原文与配图全部落盘</span>
+      <div class="spacer"></div>
+      <button class="btn" data-act="refresh-stats">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></svg>刷新
+      </button>
+    </div>
+
+    <div class="cards">
+      ${state.cats.map(cat => `
+        <button class="card" data-act="tab" data-view="cat-${attr(cat.key)}">
+          <div class="k">${esc(cat.name)} · ${esc(cat.prefix)}</div>
+          <div class="v" style="color:var(--c${catIndex(cat.key)})">${c[cat.key] || 0}</div>
+          <div class="foot">${esc(catFoot(cat))}</div></button>`).join('')}
+      <button class="card ${s.review_pending ? 'c-warn' : ''}" data-act="tab" data-view="review">
+        <div class="k">待复核</div><div class="v">${s.review_pending || 0}</div>
+        <div class="foot">判类待确认 / 复评到期</div></button>
+    </div>
+
+    <div class="panel panel-pad" style="margin-top:16px">
+      <div class="sec-head" style="margin-bottom:4px">
+        <h2>近 7 日入库</h2>
+        <span class="sub">合计 ${s.last7_total || 0} 条</span>
+      </div>
+      <div class="trend">${trend || '<div class="muted">暂无数据</div>'}</div>
+    </div>
+
+    <div class="panel panel-pad">
+      <div class="sec-head" style="margin-bottom:10px"><h2>索引与占用</h2></div>
+      <div class="kvgrid">
+        <div class="k">分段总数</div><div class="v">${s.chunks || 0} 段（含每篇元数据段）</div>
+        <div class="k">概念数</div><div class="v">${s.concepts || 0} 个</div>
+        <div class="k">词法矩阵</div><div class="v">${idx.sparse_rows || 0} × ${idx.sparse_cols || 0}，非零 ${idx.sparse_nnz || 0}</div>
+        <div class="k">占用</div><div class="v">库 ${bytes((s.size||{}).db)} · 原文 ${bytes((s.size||{}).raw)} · 配图 ${bytes((s.size||{}).media)}（合计 ${bytes((s.size||{}).total)}）</div>
+        <div class="k">入库失败记录</div><div class="v">${s.failed || 0} 条</div>
+      </div>
+    </div>`;
+  $('#tabReview').hidden = !s.review_pending;
+  if (s.review_pending) $('#tabReview').textContent = s.review_pending;
+}
+
+/* ================================================================ 模块 3：待复核队列 */
+async function renderReview(reset){
+  const box = $('#view-review');
+  if (reset !== false){ box.innerHTML = `<div class="empty">加载中…</div>`; }
+
+  let r;
+  try { r = await apiGet('/api/articles?queue=review&page_size=50&page=1' + orderArg()); }
+  catch(e){ box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+
+  const items = r.items || [];
+  const rows = items.map(a => {
+    const flag = a.review_flag === 1;
+    const overdue = a.review_due && new Date(a.review_due) <= new Date();
+    return `
+    <div class="row">
+      <div class="grow">
+        <div class="t">${esc(a.title)}</div>
+        <div class="m">
+          ${catBadge(a.category)}
+          ${flag ? '<span class="bdg warn">判类待确认</span>' : ''}
+          ${(!flag && overdue) ? '<span class="bdg warn">复评到期</span>' : ''}
+          <span>${esc(a.source || '来源未知')}</span>
+          <span>${esc(d10(a.published_at || a.collected_at))}</span>
+          <span class="muted">${esc(a.id)}</span>
+          ${a.review_due ? `<span class="muted">复评 ${esc(d10(a.review_due))}</span>` : ''}
+        </div>
+        ${a.summary ? `<div class="s">${esc(a.summary)}</div>` : ''}
+      </div>
+      <div class="acts">
+        <button class="btn tiny primary" data-act="confirm-review" data-id="${attr(a.id)}"
+          title="判断没问题，放行（复评周期会自动顺延）">确认无误</button>
+        <span class="muted" style="font-size:12px">改为</span>
+        ${state.cats.filter(c => c.key !== a.category).map(c =>
+          `<button class="btn tiny" data-act="setcat" data-id="${attr(a.id)}" data-cat="${attr(c.key)}"
+             title="判据：${attr(c.criteria || '（这一类没写判据）')}">${esc(c.name)}</button>`).join('')}
+        <button class="btn tiny" data-act="detail" data-id="${attr(a.id)}">详情</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  // 判类标准速查：复核时必须能对照判据，否则只能靠感觉猜
+  const critPanel = `
+    <details class="spare" style="margin-bottom:12px">
+      <summary>判类标准（拿不准时对照这里，判据可在「分类设置」里改）</summary>
+      <div class="inner">
+        <div class="repo-key">
+          ${state.cats.map(c => `
+            <div class="k">${esc(c.name)}${c.is_default ? ' <span class="muted">· 默认</span>' : ''}</div>
+            <div class="v">${esc(c.criteria || '（这一类还没写判据）')}</div>`).join('')}
+        </div>
+      </div>
+    </details>`;
+
+  box.innerHTML = `
+    <div class="sec-head">
+      <h2>待复核队列</h2>
+      <span class="sub">review_flag = 1 或 review_due 已到期 · 改类后自动清除标记</span>
+      <div class="spacer"></div>
+      ${orderSwitch()}
+      <button class="btn" data-act="reload-review">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></svg>刷新
+      </button>
+    </div>
+    ${critPanel}
+    <div class="panel">${items.length ? `<div class="rows">${rows}</div>` :
+      `<div class="empty">队列已清空 —— 没有待复核条目</div>`}</div>`;
+}
+
+/* ================================================================ 模块 4/5/6：分类视图（按配置渲染）
+   分类可增删，所以视图不再是三个写死的函数，而是按分类的能力项分发：
+     · features 含 repo_card → 评估卡网格（带 GitHub 客观数据）
+     · features 含 concepts  → 列表 + 「概念互链」子页签
+     · 其余                  → 通用列表
+   **所有分类的整行/卡片点击都进详情**（不再有「整行跳原文」这种按分类区别对待的行为）。 */
+
+async function renderRepoCategory(key, box){
+  const cat = catOf(key);
+  box.innerHTML = `<div class="empty">加载中…</div>`;
+  let r;
+  try { r = await apiGet('/api/articles?category=' + encodeURIComponent(key) + '&page_size=60&page=1' + orderArg()); }
+  catch(e){ box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+
+  const items = r.items || [];
+  const cards = items.map(a => `
+    <div class="acard v-${esc(a.verdict || 'none')}" data-act="detail" data-id="${attr(a.id)}">
+      <!-- 整页都是同一个分类，不必每张卡再重复打分类徽章 -->
+      <div class="top">${verdictBadge(a.verdict)}</div>
+      <div class="t">${esc(a.title)}</div>
+      <div class="kv">
+        <div class="k">仓库</div><div class="v">${a.repo_url ? esc(a.repo_url.replace(/^https?:\/\/(www\.)?github\.com\//,'')) : '—'}</div>
+        <div class="k">Stars</div><div class="v num">${a.stars != null ? esc(String(a.stars)) : '—'}</div>
+      </div>
+      ${a.summary ? `<div style="color:var(--text-2);font-size:13px;line-height:1.8">${esc(a.summary)}</div>` : ''}
+      ${(a.tags && a.tags.length) ? `<div class="tagline">${a.tags.map(t =>
+        `<span class="tag link" data-act="tag" data-tag="${attr(t)}" title="看所有带此标签的文章">${esc(t)}</span>`).join('')}</div>` : ''}
+      <div class="foot">
+        ${a.verified_at ? 'VERIFIED · ' + esc(d10(a.verified_at)) : 'NOT VERIFIED'}
+      </div>
+    </div>`).join('');
+
+  box.innerHTML = `
+    <div class="sec-head">
+      <h2>${esc(cat.name)} · 评估卡</h2>
+      <span class="sub">共 ${r.total} 条 · 点开卡片进详情，可一键重新核查 GitHub</span>
+      <div class="spacer"></div>
+      ${orderSwitch()}
+      <button class="btn" data-act="reload-cat" data-cat="${attr(key)}">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></svg>刷新
+      </button>
+    </div>
+    ${items.length ? `<div class="grid">${cards}</div>`
+      : `<div class="panel"><div class="empty">还没有「${esc(cat.name)}」的文章</div></div>`}`;
+}
+
+async function renderConceptCategory(key, box){
+  const cat = catOf(key);
+  const sub = state.sub[key] || 'articles';
+  box.innerHTML = `
+    <div class="sec-head">
+      <h2>${esc(cat.name)}</h2>
+      <div class="seg" style="margin-left:4px">
+        <button data-act="cat-sub" data-cat="${attr(key)}" data-sub="articles" class="${sub==='articles'?'on':''}">文章</button>
+        <button data-act="cat-sub" data-cat="${attr(key)}" data-sub="concepts" class="${sub==='concepts'?'on':''}">概念互链</button>
+      </div>
+      <span class="sub">${sub==='articles' ? '点开进详情，里面有分段与概念互链' : '概念名可点击反查文章'}</span>
+      <div class="spacer"></div>
+      ${sub === 'articles' ? orderSwitch() : ''}
+    </div>
+    <div id="catPane-${attr(key)}"><div class="empty">加载中…</div></div>`;
+
+  if (sub === 'concepts') return renderConcepts();
+  await renderCategoryArticles(key, 'catPane-' + key);
+}
+
+async function renderCategoryArticles(key, paneId){
+  const pane = $('#' + paneId);
+  if (!pane) return;
+  let r;
+  try { r = await apiGet('/api/articles?category=' + encodeURIComponent(key) + '&page_size=60&page=1' + orderArg()); }
+  catch(e){ pane.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+
+  const cat = catOf(key);
+  const items = r.items || [];
+  const rows = items.map(a => listRowHtml(a, cat)).join('');
+
+  pane.innerHTML = items.length
+    ? `<div class="panel"><div class="rows">${rows}</div></div>`
+    : `<div class="panel"><div class="empty">还没有「${esc(catName(key))}」的文章</div></div>`;
+}
+
+async function renderListCategory(key, box){
+  const cat = catOf(key);
+  box.innerHTML = `<div class="empty">加载中…</div>`;
+  let r;
+  try { r = await apiGet('/api/articles?category=' + encodeURIComponent(key) + '&page_size=60&page=1' + orderArg()); }
+  catch(e){ box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+
+  const items = r.items || [];
+  const rows = items.map(a => listRowHtml(a, cat)).join('');
+
+  box.innerHTML = `
+    <div class="sec-head">
+      <h2>${esc(cat.name)}</h2>
+      <span class="sub">共 ${r.total} 条 · 点整行进详情（详情内可跳原文）</span>
+      <div class="spacer"></div>
+      ${orderSwitch()}
+      <button class="btn" data-act="reload-cat" data-cat="${attr(key)}">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></svg>刷新
+      </button>
+    </div>
+    ${items.length ? `<div class="panel"><div class="rows">${rows}</div></div>`
+      : `<div class="panel"><div class="empty">还没有「${esc(cat.name)}」的文章</div></div>`}`;
+}
+
+async function renderCompactCategory(key, box){
+  const cat = catOf(key);
+  box.innerHTML = `<div class="empty">加载中…</div>`;
+  let r;
+  try { r = await apiGet('/api/articles?category=' + encodeURIComponent(key) + '&page_size=200&page=1' + orderArg()); }
+  catch(e){ box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+
+  const items = r.items || [];
+  const rows = items.map(a => compactRowHtml(a, cat)).join('');
+
+  box.innerHTML = `
+    <div class="sec-head">
+      <h2>${esc(cat.name)}</h2>
+      <span class="sub">共 ${r.total} 条 · 紧凑视图（点整行看详情）</span>
+      <div class="spacer"></div>
+      ${orderSwitch()}
+      <button class="btn" data-act="reload-cat" data-cat="${attr(key)}">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></svg>刷新
+      </button>
+    </div>
+    ${items.length ? `<div class="panel"><div class="rows">${rows}</div></div>`
+      : `<div class="panel"><div class="empty">还没有「${esc(cat.name)}」的文章</div></div>`}`;
+}
+
+/* ================================================================ 标签筛选 */
+/* 点详情里的标签 → 看所有带这个标签的文章。/api/articles 本来就支持 tag 过滤。 */
+async function renderTag(tag){
+  const box = $('#view-tag');
+  tag = (tag || '').trim();
+  if (!tag){ switchView('overview'); return; }
+  box.innerHTML = `<div class="empty">加载中…</div>`;
+
+  let r;
+  try { r = await apiGet('/api/articles?tag=' + encodeURIComponent(tag) + '&page_size=100' + orderArg()); }
+  catch(e){ box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+
+  const items = r.items || [];
+  const rows = items.map(a => `
+    <div class="row clickable" data-act="detail" data-id="${attr(a.id)}">
+      <div class="grow">
+        <div class="t">${esc(a.title)}</div>
+        <div class="m">
+          ${catBadge(a.category)}
+          <span>${esc(a.source || '来源未知')}</span>
+          <span>${esc(d10(a.published_at || a.collected_at))}</span>
+        </div>
+        ${a.summary ? `<div class="s">${esc(a.summary)}</div>` : ''}
+        ${(a.tags && a.tags.length) ? `<div class="tagline">${a.tags.map(t =>
+          `<span class="tag${t === tag ? ' on' : ''}">${esc(t)}</span>`).join('')}</div>` : ''}
+      </div>
+    </div>`).join('');
+
+  box.innerHTML = `
+    <div class="sec-head">
+      <h2>标签 · ${esc(tag)}</h2>
+      <span class="sub">共 ${r.total} 条</span>
+      <div class="spacer"></div>
+      ${orderSwitch()}
+      <button class="btn" data-act="tab" data-view="overview">回概览</button>
+    </div>
+    ${items.length
+      ? `<div class="panel"><div class="rows">${rows}</div></div>`
+      : `<div class="panel"><div class="empty">没有带这个标签的文章</div></div>`}`;
+}
+
+/* 概念子页签的容器：跟随当前分类视图 */
+function curPaneId(){
+  return state.view.indexOf('cat-') === 0 ? 'catPane-' + state.view.slice(4) : null;
+}
+
+async function renderConcepts(q){
+  const pane = $('#' + (curPaneId() || ''));
+  if (!pane) return;
+  let r;
+  try { r = await apiGet('/api/concepts' + (q ? '?q=' + encodeURIComponent(q) : '')); }
+  catch(e){ pane.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+
+  const items = r.items || [];
+  const cards = items.map(c => `
+    <div class="block" style="margin-bottom:10px">
+      <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
+        <b style="font-size:14.5px">${esc(c.name)}</b>
+        ${c.category ? catBadge(c.category) : ''}
+        ${c.article_id ? `<a href="#" data-act="detail" data-id="${attr(c.article_id)}" style="font-size:12.5px">${esc(c.article_title || c.article_id)}</a>` : ''}
+      </div>
+      ${c.definition ? `<div style="color:var(--text-2);font-size:13px;margin-top:6px;line-height:1.75">${esc(c.definition)}</div>` : ''}
+      ${(c.related && c.related.length) ? `<div class="tagline">${c.related.map(n =>
+        `<span class="tag link" data-act="concept" data-name="${attr(n)}">${esc(n)}</span>`).join('')}</div>` : ''}
+    </div>`).join('');
+
+  pane.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <input class="inp" id="cq" style="max-width:280px" placeholder="按概念名 / 释义过滤" value="${attr(q || '')}">
+      <button class="btn" data-act="concept-search">
+        <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>过滤
+      </button>
+      ${q ? '<button class="btn" data-act="concept-search" data-clear="1">清除</button>' : ''}
+      <span class="muted" style="align-self:center;font-size:12.5px">共 ${r.total} 个概念</span>
+    </div>
+    ${items.length ? cards : '<div class="panel"><div class="empty">没有匹配的概念</div></div>'}`;
+}
+
+/* ================================================================ 模块 7：手工补录（辅路径，PRD §10.3） */
+function renderAdd(){
+  const dc = state.cats.find(c => c.is_default) || state.cats[0] || { name: '默认分类' };
+  $('#view-add').innerHTML = `
+    <div class="sec-head">
+      <h2>手工补录</h2>
+      <span class="sub">辅路径：粘贴<b>正文文本</b>，不抓取、不判类（后端不调 LLM）</span>
+    </div>
+    <div class="panel panel-pad">
+      <div class="banner tip">
+        <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8.2v.3"/></svg>
+        <div>主路径是在对话里把链接发给 Agent（自动抓取 + 判类），产出完整。<b>本框只接受正文</b>——
+        后端拿到链接也变不出正文；不确定类别时选「不确定」，会落「${esc(dc.name)}」并进待复核队列。</div>
+      </div>
+      <div class="form">
+        <div class="row2">
+          <div class="field">
+            <label>标题 *</label>
+            <input class="inp" id="aTitle" placeholder="文章标题">
+          </div>
+          <div class="field">
+            <label>原文链接（可空 · 填了用于去重）</label>
+            <input class="inp" id="aUrl" placeholder="https://mp.weixin.qq.com/s/...">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>公众号来源（可空）</label>
+            <input class="inp" id="aSource" placeholder="如：腾讯云开发者">
+          </div>
+          <div class="field">
+            <label>发布时间（可空，用于编号日期）</label>
+            <input class="inp" id="aDate" placeholder="2026-09-10 或 2026-09-10T18:00:00+08:00">
+          </div>
+        </div>
+        <div class="field">
+          <label>类别（选「不确定」会落到默认分类并进待复核）</label>
+          <div class="seg" id="aCat">
+            ${state.cats.map(c =>
+              `<button type="button" data-cat="${attr(c.key)}">${esc(c.name)}</button>`).join('')}
+            <button type="button" class="on" data-cat="">不确定</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>正文（Markdown 或纯文本）*</label>
+          <textarea class="ta" id="aBody" placeholder="# 标题&#10;&#10;正文……"></textarea>
+        </div>
+        <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <button class="btn primary" data-act="submit-text">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>入库
+          </button>
+          <span class="muted" id="aHint" style="font-size:12.5px">编号由后端分配（前缀 + 发布日 + 两位序号）</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ================================================================ 分类设置（PRD §5.5） */
+/* 开源分发时各人需要的分类不同：名字、数量、划分标准、检索方式都在这里改。
+   key 不可改（它已写进文章编号）；prefix 只影响**未来**的新编号。 */
+async function renderSettings(){
+  const box = $('#view-settings');
+  box.innerHTML = `<div class="empty">加载中…</div>`;
+  let r;
+  try { r = await apiGet('/api/categories'); }
+  catch(e){ box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+
+  state.cats = r.items || [];
+  state.catMap = {}; state.cats.forEach(c => { state.catMap[c.key] = c; });
+  state.retrievalModes = r.retrieval_modes || [];
+  state.featureDefs = r.features || [];
+
+  const modes = state.retrievalModes;
+  const feats = state.featureDefs;
+
+  const rows = state.cats.map(c => `
+    <div class="panel panel-pad" style="margin-bottom:12px" data-catrow="${attr(c.key)}">
+      <div class="sec-head" style="margin-bottom:10px">
+        <h2 style="font-size:14px">${esc(c.name)}</h2>
+        <span class="bdg ghost">${esc(c.key)}</span>
+        <span class="bdg ghost">${c.count || 0} 篇</span>
+        ${c.is_default ? '<span class="bdg ok">默认分类</span>' : ''}
+        <div class="spacer"></div>
+        <button class="btn tiny" data-act="del-cat" data-cat="${attr(c.key)}">删除</button>
+      </div>
+      <div class="form">
+        <div class="row2">
+          <div class="field"><label>显示名</label>
+            <input class="inp" data-f="name" value="${attr(c.name)}"></div>
+          <div class="field"><label>编号前缀（1–3 位字母/数字，只影响新编号）</label>
+            <input class="inp" data-f="prefix" value="${attr(c.prefix)}"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>检索方式</label>
+            <select class="sel" data-f="retrieval">
+              ${modes.map(m => `<option value="${attr(m.key)}"${m.key === c.retrieval ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}
+            </select></div>
+          <div class="field"><label>展示样式</label>
+            <select class="sel" data-f="display">
+              ${state.displayModes.map(m => `<option value="${attr(m.key)}"${m.key === (c.display || '') ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}
+            </select></div>
+        </div>
+        <div class="field"><label>顺序（页签从左到右）</label>
+          <input class="inp" data-f="sort_order" type="number" value="${c.sort_order || 0}" style="max-width:200px"></div>
+        <div class="field"><label>能力项</label>
+          <div style="display:flex;gap:14px;flex-wrap:wrap">
+            ${feats.map(f => `<label style="display:flex;gap:6px;align-items:center;font-size:13px">
+              <input type="checkbox" data-f="feature" value="${attr(f.key)}"${(c.features || []).includes(f.key) ? ' checked' : ''}>${esc(f.name)}</label>`).join('')}
+            <label style="display:flex;gap:6px;align-items:center;font-size:13px">
+              <input type="radio" name="defcat" data-act="set-default" data-cat="${attr(c.key)}"${c.is_default ? ' checked' : ''}>判不准时落这一类</label>
+          </div>
+        </div>
+        <div class="field"><label>划分标准（写给人看，也给 Agent 判类看）</label>
+          <textarea class="ta" style="min-height:96px" data-f="criteria">${esc(c.criteria || '')}</textarea></div>
+        <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <button class="btn primary" data-act="save-cat" data-cat="${attr(c.key)}">保存</button>
+          <span class="muted" style="font-size:12.5px">改前缀不动已有编号；改检索方式只影响之后入库的文章</span>
+        </div>
+      </div>
+    </div>`).join('');
+
+  box.innerHTML = `
+    <div class="sec-head">
+      <h2>分类设置</h2>
+      <span class="sub">分类完全由你定义：名字、数量、划分标准、检索方式都能改，改完点保存</span>
+      <div class="spacer"></div>
+      <button class="btn" data-act="reload-settings">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></svg>刷新
+      </button>
+    </div>
+    <div class="banner tip">
+      <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8.2v.3"/></svg>
+      <div>改的是<b>你这份部署</b>的分类（当前 ${state.cats.length} 个：名字、数量、划分标准都能改，改完点保存）。
+      「直接全文」= 不建向量索引（省算力）：这类文章按时间浏览、点开读全文，
+      检索时只按标题 / 摘要 / 标签做关键词兜底。<b>检索方式只影响之后入库的文章</b>，
+      想让存量文章也改过来，需要重建索引。</div>
+    </div>
+    ${rows}
+    <div class="panel panel-pad">
+      <div class="sec-head" style="margin-bottom:10px"><h2 style="font-size:14px">新增分类</h2></div>
+      <div class="form">
+        <div class="row2">
+          <div class="field"><label>标识 key（2–16 位小写字母/数字/下划线，入库后不建议改）</label>
+            <input class="inp" id="ncKey" placeholder="如 paper"></div>
+          <div class="field"><label>显示名</label>
+            <input class="inp" id="ncName" placeholder="如 论文精读"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>编号前缀</label>
+            <input class="inp" id="ncPrefix" placeholder="如 P"></div>
+          <div class="field"><label>检索方式</label>
+            <select class="sel" id="ncRetrieval">
+              ${modes.map(m => `<option value="${attr(m.key)}">${esc(m.name)}</option>`).join('')}
+            </select></div>
+        </div>
+        <div class="field"><label>能力项</label>
+          <div style="display:flex;gap:14px;flex-wrap:wrap">
+            ${feats.map(f => `<label style="display:flex;gap:6px;align-items:center;font-size:13px">
+              <input type="checkbox" class="ncfeat" value="${attr(f.key)}">${esc(f.name)}</label>`).join('')}
+          </div>
+        </div>
+        <div class="field"><label>展示样式</label>
+          <select class="sel" id="ncDisplay">
+            ${state.displayModes.map(m => `<option value="${attr(m.key)}">${esc(m.name)}</option>`).join('')}
+          </select></div>
+        <div class="field"><label>划分标准</label>
+          <textarea class="ta" id="ncCriteria" style="min-height:80px" placeholder="什么样的内容该归到这一类"></textarea></div>
+        <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <button class="btn primary" data-act="add-cat">新增</button>
+          <span class="muted" style="font-size:12.5px">新增的分类会立刻出现在页签里</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ================================================================ 入库规则（PRD §5.6） */
+/* 只放「业务规则」：摘要多长、标签几个、什么情况进待复核。
+   「技术规则」不在这 —— 抓取解析 / URL 规范化 / 切段参数改错会让系统直接坏掉。 */
+async function renderRules(){
+  const box = $('#view-rules');
+  box.innerHTML = `<div class="empty">加载中…</div>`;
+  let r;
+  try { r = await apiGet('/api/rules'); }
+  catch(e){ box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+
+  const items = r.items || [];
+  const fields = items.map(it => `
+    <div class="field">
+      <label>${esc(it.name)}${it.changed ? ' <span class="bdg ghost">已改过</span>' : ''}</label>
+      ${it.type === 'int'
+        ? `<input class="inp" data-rule="${attr(it.key)}" type="number" value="${attr(it.value)}" style="max-width:200px">`
+        : `<textarea class="ta" data-rule="${attr(it.key)}" style="min-height:84px">${esc(it.value)}</textarea>`}
+      ${it.hint ? `<div class="muted" style="font-size:12px">${esc(it.hint)}</div>` : ''}
+      <div class="muted" style="font-size:12px">出厂默认：${esc(it.default)}</div>
+    </div>`).join('');
+
+  box.innerHTML = `
+    <div class="sec-head">
+      <h2>入库规则</h2>
+      <span class="sub">Agent 入库时遵守的业务规则 · 改完即对之后入库的文章生效</span>
+      <div class="spacer"></div>
+      <button class="btn" data-act="reload-rules">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></svg>刷新
+      </button>
+    </div>
+    <div class="banner tip">
+      <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8.2v.3"/></svg>
+      <div>这里只有<b>业务规则</b>（摘要多长、标签几个、什么情况进待复核）—— 改错了最多是"结果不合口味"。
+      被抓取解析、URL 规范化、切段参数这类<b>技术规则不在此列</b>：它们改错了系统会直接哑掉
+      （抓不到正文、查重失效），所以留在代码里。</div>
+    </div>
+    <div class="panel panel-pad">
+      <div class="form">${fields}</div>
+      <div style="display:flex;gap:9px;align-items:center;margin-top:14px;flex-wrap:wrap">
+        <button class="btn primary" data-act="save-rules">保存</button>
+        <span class="muted" style="font-size:12.5px">改完立即生效，不用重启服务；存量文章的摘要不会自动重写</span>
+      </div>
+    </div>`;
+}
+
+async function saveRules(){
+  const values = {};
+  $$('[data-rule]').forEach(el => { values[el.dataset.rule] = el.value; });
+  if (!Object.keys(values).length) return;
+  try {
+    await apiJson('/api/rules', 'PATCH', { values });
+    toast('规则已保存');
+    renderRules();
+  } catch(e){ showErr(e); }
+}
+
+async function saveCategory(key){
+  const row = $('[data-catrow="' + key + '"]');
+  if (!row) return;
+  const name = row.querySelector('[data-f="name"]').value.trim();
+  const prefix = row.querySelector('[data-f="prefix"]').value.trim();
+  const retrieval = row.querySelector('[data-f="retrieval"]').value;
+  const display = row.querySelector('[data-f="display"]').value;
+  const criteria = row.querySelector('[data-f="criteria"]').value;
+  const sort_order = parseInt(row.querySelector('[data-f="sort_order"]').value || '0', 10) || 0;
+  const features = $$('[data-f="feature"]', row).filter(x => x.checked).map(x => x.value);
+  const def = row.querySelector('[data-act="set-default"]');
+
+  try {
+    await apiJson('/api/categories/' + encodeURIComponent(key), 'PATCH', {
+      name, prefix, retrieval, display, criteria, features, sort_order,
+      is_default: (def && def.checked) ? 1 : 0,
+    });
+    toast('已保存「' + name + '」');
+    await loadCategories();
+    renderSettings();
+  } catch(e){ showErr(e); }
+}
+
+async function deleteCategory(key){
+  const c = catOf(key);
+  if (!c) return;
+  if (c.count){
+    return toast('「' + c.name + '」下还有 ' + c.count + ' 篇文章，先把它们改成别的分类再删', 4600);
+  }
+  if (!window.confirm('删除分类「' + c.name + '」？\n\n该分类下没有文章，删除不影响已有内容。')) return;
+  try {
+    await apiJson('/api/categories/' + encodeURIComponent(key) + '?confirm=yes', 'DELETE');
+    toast('已删除「' + c.name + '」');
+    await loadCategories();
+    renderSettings();
+  } catch(e){ showErr(e); }
+}
+
+async function addCategory(){
+  const key = $('#ncKey').value.trim();
+  const name = $('#ncName').value.trim();
+  const prefix = $('#ncPrefix').value.trim();
+  if (!key || !name || !prefix) return toast('key / 显示名 / 编号前缀都要填');
+  const features = $$('.ncfeat').filter(x => x.checked).map(x => x.value);
+  try {
+    await apiJson('/api/categories', 'POST', {
+      key, name, prefix, features,
+      retrieval: $('#ncRetrieval').value,
+      display: $('#ncDisplay').value,
+      criteria: $('#ncCriteria').value,
+      sort_order: state.cats.length + 1,
+    });
+    toast('已新增「' + name + '」');
+    await loadCategories();
+    renderSettings();
+  } catch(e){ showErr(e); }
+}
+
+async function submitText(){
+  const title = $('#aTitle').value.trim();
+  const body  = $('#aBody').value.trim();
+  if (!title) return toast('请填标题');
+  if (!body)  return toast('请粘贴正文');
+  const catBtn = $('#aCat button.on');
+  const category = catBtn ? (catBtn.dataset.cat || null) : null;
+  const dateRaw = $('#aDate').value.trim();
+
+  const btn = $('[data-act="submit-text"]');
+  btn.disabled = true;
+  $('#aHint').textContent = '正在切段与向量化，长文需要几秒…';
+  try {
+    const r = await apiJson('/api/ingest-text', 'POST', {
+      title,
+      url: $('#aUrl').value.trim() || null,
+      source: $('#aSource').value.trim() || null,
+      category: category || null,
+      published_at: dateRaw ? (dateRaw.length === 10 ? dateRaw + 'T00:00:00+08:00' : dateRaw) : null,
+      raw_content: body
+    });
+    if (r.dup) toast('已存在，未重复入库：' + r.id);
+    else toast('入库成功：' + r.id + '（' + (r.chunks || 0) + ' 段' + (r.review_flag ? '，已进待复核' : '') + '）', 4200);
+    $('#aHint').innerHTML = r.dup
+      ? `库中已有该链接，命中 <b>${esc(r.id)}</b>，未重复写入。`
+      : `已入库 <b>${esc(r.id)}</b> · ${r.chunks || 0} 段 · ${r.chars || 0} 字${r.review_flag ? ' · 已进待复核队列' : ''}`;
+    $('#aTitle').value = ''; $('#aBody').value = ''; $('#aUrl').value = '';
+    loadHealth();
+  } catch(e){
+    showErr(e);
+    $('#aHint').textContent = '入库失败，正文已保留在输入框，可重试。';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ================================================================ 检索结果 */
+async function doSearch(q, mode){
+  q = (q || '').trim();
+  if (!q) return;
+  state.search = { q, mode: mode || 'hybrid' };
+  $('#tabSearch').hidden = false;
+  switchView('search');
+
+  const box = $('#view-search');
+  box.innerHTML = `<div class="empty">检索中…（首次检索需加载查询向量）</div>`;
+  try {
+    const r = await apiGet('/api/search?q=' + encodeURIComponent(q) +
+                           '&mode=' + encodeURIComponent(state.search.mode) + '&limit=20');
+    const hits = r.hits || [];
+    const list = hits.map(h => `
+      <div class="hit">
+        <div class="hh">
+          ${catBadge(h.category)}
+          ${h.match_type === 'fulltext' ? '<span class="bdg ghost">全文匹配</span>' : ''}
+          <span class="ht">${esc(h.title)}</span>
+          <span class="score">${h.match_type === 'fulltext' ? '—' : h.score}</span>
+        </div>
+        <div class="hm">${esc(h.source || '来源未知')} · ${esc(d10(h.published_at || h.collected_at))} · ${esc(h.article_id)}</div>
+        <div class="mc">
+          ${(h.matched_chunks || []).map(m => `
+            <div>
+              ${m.heading_path ? `<div class="mp">${esc(m.heading_path)}</div>` : ''}
+              <div class="mt">${esc(m.snippet)}</div>
+              <div class="mr">
+                ${m.rank_dense ? `<span>语义 #${m.rank_dense}</span>` : ''}
+                ${m.rank_sparse ? `<span>词法 #${m.rank_sparse}</span>` : ''}
+              </div>
+            </div>`).join('')}
+        </div>
+        <div class="mc" style="border-top:0;padding-top:4px">
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            <button class="btn tiny" data-act="detail" data-id="${attr(h.article_id)}">详情</button>
+            ${h.url ? `<a class="btn tiny" href="${attr(h.url)}" target="_blank" rel="noopener">打开原文
+              <svg class="ico" style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M18 14.5V18a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 18V9a1.5 1.5 0 0 1 1.5-1.5H11"/></svg>
+            </a>` : ''}
+          </div>
+        </div>
+      </div>`).join('');
+
+    const modes = { hybrid:'融合', dense:'语义', sparse:'关键词' };
+    box.innerHTML = `
+      <div class="sec-head">
+        <h2>「${esc(q)}」</h2>
+        <span class="sub">${modes[state.search.mode] || ''} · 命中 ${r.total} 篇</span>
+        <div class="spacer"></div>
+        <div class="seg">
+          ${['hybrid','dense','sparse'].map(m => `
+            <button data-act="research" data-mode="${m}" data-q="${attr(q)}"
+              class="${state.search.mode===m?'on':''}">${modes[m]}</button>`).join('')}
+        </div>
+      </div>
+      ${hits.length ? list : `<div class="panel"><div class="empty">
+        没有命中。试试换成自己的说法（语义路不怕措辞不同）；找专有名词可切「关键词」。</div></div>`}`;
+  } catch(e){
+    box.innerHTML = `<div class="empty">检索失败：${esc(e.message)}</div>`;
+  }
+}
+
+/* ================================================================ 视图切换 */
+function switchView(v){
+  state.view = v;
+  $$('.view').forEach(el => el.classList.toggle('on', el.id === 'view-' + v));
+  $$('.tab').forEach(el => el.classList.toggle('on', el.dataset.view === v));
+  if (v === 'overview')          renderOverview();
+  else if (v === 'review')       renderReview();
+  else if (v === 'add')          renderAdd();
+  else if (v === 'settings')     renderSettings();
+  else if (v === 'rules')        renderRules();
+  else if (v === 'tag')          renderTag(state.tag);
+  else if (v.indexOf('cat-') === 0) renderCategory(v.slice(4));
+  window.scrollTo(0, 0);
+}
+
+/* ================================================================ 模块 8：详情抽屉 */
+function closeDrawer(){
+  $('#drawer').classList.remove('on');
+  $('#drawer').setAttribute('aria-hidden', 'true');
+  $('#scrim').classList.remove('on');
+  document.body.style.overflow = '';
+}
+
+async function openDetail(id){
+  $('#drawer').classList.add('on');
+  $('#drawer').setAttribute('aria-hidden', 'false');
+  $('#scrim').classList.add('on');
+  document.body.style.overflow = 'hidden';
+  $('#dTitle').textContent = '加载中…';
+  $('#dMeta').innerHTML = '';
+  $('#dBody').innerHTML = '<div class="empty">加载中…</div>';
+  $('#dFoot').innerHTML = '';
+
+  let a;
+  try { a = await apiGet('/api/articles/' + encodeURIComponent(id)); }
+  catch(e){
+    $('#dTitle').textContent = '加载失败';
+    $('#dBody').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  state.detail = a;
+  renderDetail(a);
+}
+
+function repoLabel(url){
+  if (!url) return '';
+  return String(url).replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/\/+$/, '');
+}
+
+function renderDetail(a){
+  const hasCard = hasFeature(a.category, 'repo_card');
+  $('#dTitle').textContent = a.title || '(无标题)';
+
+  // 头部只留"人一眼要看的"：类别、待复核标记、来源、作者、日期。
+  // 编号这类备查信息挪到底部折叠区（原来的位置等于占着最好的地方展示没人看的东西）。
+  $('#dMeta').innerHTML = `
+    ${catBadge(a.category)}
+    ${a.review_flag ? '<span class="bdg warn">判类待确认</span>' : ''}
+    <span>${esc(a.source || '来源未知')}</span>
+    ${a.author ? `<span>${esc(a.author)}</span>` : ''}
+    <span>${esc(d10(a.published_at || a.collected_at))}</span>`;
+
+  const attachments = a.attachments || [];
+  const concepts = a.concepts || [];
+  const related = a.related_articles || [];
+  const chunks = a.chunks || [];
+
+  // ① 摘要 + 标签：人最该先看到的
+  const summaryBlock = `
+    <div class="block">
+      <div class="sum">${a.summary ? esc(a.summary) : '<em>（无摘要）</em>'}</div>
+      ${(a.tags && a.tags.length) ? `<div class="tagline">${a.tags.map(t =>
+        `<span class="tag link" data-act="tag" data-tag="${attr(t)}" title="看所有带此标签的文章">${esc(t)}</span>`).join('')}</div>` : ''}
+    </div>`;
+
+  // ② 项目实况：仓库 / star / license 一行扫完；语言、创建日期、提交日期降为灰字一行；
+  //    真正需要读的「能力边界」「部署条件」单独成块、完整显示
+  const repoBlock = hasCard ? `
+    <div class="block">
+      <h3>项目实况</h3>
+      <div class="repo-head">
+        ${a.repo_url
+          ? `<a class="name" href="${attr(a.repo_url)}" target="_blank" rel="noopener">${esc(repoLabel(a.repo_url))}</a>`
+          : '<span class="name muted">仓库未登记</span>'}
+        ${a.stars != null ? `<span class="bdg ghost">★ ${Number(a.stars).toLocaleString()}</span>` : ''}
+        ${a.license ? `<span class="bdg ghost">${esc(a.license)}</span>` : ''}
+        ${verdictBadge(a.verdict)}
+      </div>
+      <div class="repo-sub">
+        ${a.language ? `<span>${esc(a.language)}</span>` : ''}
+        ${a.created_date ? `<span>创建 ${esc(d10(a.created_date))}</span>` : ''}
+        ${a.last_commit ? `<span>最近提交 ${esc(d10(a.last_commit))}</span>` : ''}
+        <span>${a.last_release ? '发版 ' + esc(a.last_release) : '无正式发版'}</span>
+      </div>
+      ${(a.boundary || a.deploy_note) ? `
+      <div class="repo-key">
+        ${a.boundary ? `<div class="k">能力边界</div><div class="v">${esc(a.boundary)}</div>` : ''}
+        ${a.deploy_note ? `<div class="k">部署条件</div><div class="v">${esc(a.deploy_note)}</div>` : ''}
+      </div>` : ''}
+    </div>` : '';
+
+  const conceptBlock = (concepts.length || related.length) ? `
+    <div class="block">
+      <h3>概念互链</h3>
+      ${concepts.length ? concepts.map(c => `
+        <div style="margin-bottom:9px">
+          <b style="font-size:13.5px">${esc(c.name)}</b>
+          ${c.definition ? `<div style="color:var(--text-2);font-size:12.8px;line-height:1.7;margin-top:3px">${esc(c.definition)}</div>` : ''}
+          ${(c.related && c.related.length) ? `<div class="tagline">${c.related.map(n =>
+            `<span class="tag link" data-act="concept" data-name="${attr(n)}">${esc(n)}</span>`).join('')}</div>` : ''}
+        </div>`).join('') : ''}
+      ${related.length ? `
+        <div style="margin-top:10px;border-top:1px dashed var(--border);padding-top:9px">
+          <div class="muted" style="font-size:12.5px;margin-bottom:6px">相关文章</div>
+          ${related.map(r => `
+            <div style="display:flex;gap:8px;align-items:baseline;margin:5px 0">
+              ${catBadge(r.category)}
+              <a href="#" data-act="detail" data-id="${attr(r.id)}" style="font-size:13px">${esc(r.title)}</a>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>` : '';
+
+  const attachBlock = attachments.length ? `
+    <div class="block">
+      <h3>配图 · ${attachments.length} 张（已本地化）</h3>
+      <div class="thumbs">
+        ${attachments.map(p => `<img src="${attr(API_BASE + '/' + p)}" loading="lazy"
+          data-act="zoom" data-src="${attr(API_BASE + '/' + p)}" alt="">`).join('')}
+      </div>
+    </div>` : '';
+
+  const chunkBlock = chunks.length ? `
+    <div class="block">
+      <h3>分段 · ${chunks.length} 段（切段供检索定位）</h3>
+      ${chunks.map(c => `
+        <details class="chunkitem">
+          <summary>
+            <span class="bdg ghost">#${c.ordinal}</span>
+            <span>${esc(c.heading_path || '（无标题段）')}</span>
+            <span class="muted" style="margin-left:auto">${c.token_count || 0} tok</span>
+          </summary>
+          <div class="ctext">${esc(c.text).replace(/!\[[^\]]*\]\([^)]*\)/g, '[图]')}</div>
+        </details>`).join('')}
+    </div>` : '';
+
+  // ⑤ 备查信息：编号 / 底本 / 时间戳 / 核查记录
+  //    这些"只有排查问题才看"的东西默认收起，不该占视线
+  const spareBlock = `
+    <details class="spare">
+      <summary>备查信息 · 编号 / 底本 / 时间戳 / 核查记录</summary>
+      <div class="inner">
+        <div class="kvgrid">
+          <div class="k">编号</div><div class="v">${esc(a.id)}</div>
+          <div class="k">原文链接</div><div class="v">${a.url
+            ? `<a href="${attr(a.url)}" target="_blank" rel="noopener">${esc(a.url)}</a>` : '（无）'}</div>
+          <div class="k">原文底本</div><div class="v">${a.raw_url
+            ? `<a href="${attr(API_BASE + a.raw_url)}" target="_blank" rel="noopener">${esc(a.raw_path)}</a>` : '—'}</div>
+          <div class="k">入库时间</div><div class="v">${esc(dt(a.collected_at))}</div>
+          ${a.review_due ? `<div class="k">复评提醒</div><div class="v">${esc(d10(a.review_due))} 起自动进入「待复核」队列，提醒你回头看看它变了没</div>` : ''}
+          ${hasCard ? `<div class="k">核查时间</div><div class="v">${a.verified_at ? esc(dt(a.verified_at)) : '未核查'}</div>` : ''}
+          ${(a.evidence && a.evidence.source_url) ? `<div class="k">核查依据</div><div class="v">
+            <a href="${attr(a.evidence.source_url)}" target="_blank" rel="noopener">${esc(a.evidence.source_url)}</a>
+            ${a.evidence.error ? ` · <span style="color:var(--danger)">${esc(a.evidence.error)}</span>` : ''}
+          </div>` : ''}
+        </div>
+      </div>
+    </details>`;
+
+  let html = a.content_html || '';
+  html = html.replace(/(src|href)="\/(media|raw)\//g, '$1="' + API_BASE + '/$2/');
+
+  $('#dBody').innerHTML = `
+    ${summaryBlock}
+    ${repoBlock}
+    ${conceptBlock}
+    ${attachBlock}
+    <div class="block">
+      <h3>原文</h3>
+      <div class="md">${html || '<span class="muted">（原文文件缺失）</span>'}</div>
+    </div>
+    ${chunkBlock}
+    ${spareBlock}`;
+
+  $('#dFoot').innerHTML = `
+    ${a.review_flag ? `<button class="btn primary" data-act="confirm-review" data-id="${attr(a.id)}">
+      <svg class="ico" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg>确认分类</button>` : ''}
+    <div class="seg" id="dCat">
+      ${state.cats.map(c =>
+        `<button data-act="drawer-cat" data-id="${attr(a.id)}" data-cat="${attr(c.key)}"
+          class="${c.key === a.category ? 'on' : ''}"
+          title="判据：${attr(c.criteria || '（这一类没写判据）')}">${esc(c.name)}</button>`).join('')}
+    </div>
+    <button class="btn" data-act="edit-meta" data-id="${attr(a.id)}">
+      <svg class="ico" viewBox="0 0 24 24"><path d="M5 19h3l9.5-9.5a2 2 0 0 0-3-3L5 16z"/></svg>改摘要/标签
+    </button>
+    ${hasCard ? `<button class="btn" data-act="verify" data-id="${attr(a.id)}">
+      <svg class="ico" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></svg>重新核查</button>` : ''}
+    <div class="spacer" style="flex:1"></div>
+    ${a.url ? `<a class="btn" href="${attr(a.url)}" target="_blank" rel="noopener">打开原文
+      <svg class="ico" style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M18 14.5V18a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 18V9a1.5 1.5 0 0 1 1.5-1.5H11"/></svg>
+    </a>` : ''}
+    <button class="btn danger" data-act="delete" data-id="${attr(a.id)}">
+      <svg class="ico" viewBox="0 0 24 24"><path d="M6 7h12M9.5 7V5.5h5V7M8 7l.8 12h6.4L16 7"/></svg>删除
+    </button>`;
+}
+
+/* ---- 抽屉内的写操作 ---- */
+async function setCategory(id, cat){
+  try {
+    const r = await apiJson('/api/articles/' + encodeURIComponent(id), 'PATCH', { category: cat });
+    toast('已改为 ' + catName(r.category) + '，待复核标记已清除');
+    if (state.detail && state.detail.id === id){
+      state.detail.category = r.category;
+      state.detail.review_flag = 0;
+      renderDetail(state.detail);
+    }
+    if (state.view === 'review') renderReview(false);
+    if (state.view === 'overview') renderOverview();
+    loadHealth();
+  } catch(e){ showErr(e); }
+}
+
+/* 确认复核：判断没问题就放行。
+   清 review_flag 与"复评周期顺延"都在服务端做，前端不重复实现这套规则。 */
+async function confirmReview(id){
+  try {
+    const r = await apiJson('/api/articles/' + encodeURIComponent(id) + '/confirm', 'POST');
+    toast(r.next_due ? ('已确认，下次复评 ' + String(r.next_due).slice(0, 10))
+                     : '已确认，移出待复核', 3200);
+    if (state.detail && state.detail.id === id){
+      state.detail.review_flag = 0;
+      if (r.next_due) state.detail.review_due = r.next_due;
+      renderDetail(state.detail);
+    }
+    if (state.view === 'review')   renderReview(false);
+    if (state.view === 'overview') renderOverview();
+    loadHealth();
+  } catch(e){ showErr(e); }
+}
+
+async function verifyOne(id, btn){
+  if (btn){ btn.disabled = true; btn.innerHTML = '<svg class="ico spin" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></svg>核查中…'; }
+  try {
+    const r = await apiJson('/api/articles/' + encodeURIComponent(id) + '/verify', 'POST');
+    toast('核查完成：' + (r.data && r.data.license ? r.data.license + ' · ' : '') +
+          (r.data && r.data.stars != null ? '★' + r.data.stars : '已刷新'), 3600);
+    await openDetail(id);
+  } catch(e){
+    showErr(e);
+    await openDetail(id);
+  }
+}
+
+async function editMeta(id){
+  const a = state.detail;
+  if (!a) return;
+  const summary = window.prompt('摘要（≤60 字）', a.summary || '');
+  if (summary === null) return;
+  const tagsRaw = window.prompt('标签，英文逗号分隔', (a.tags || []).join(','));
+  if (tagsRaw === null) return;
+  const tags = tagsRaw.split(',').map(s => s.trim()).filter(Boolean);
+  const verdict = hasFeature(a.category, 'repo_card')
+    ? (window.prompt('结论：try / watch / dead（留空表示不改）', a.verdict || '') || '')
+    : '';
+  const body = { summary, tags };
+  if (verdict && VERDICT[verdict]) body.verdict = verdict;
+  try {
+    await apiJson('/api/articles/' + encodeURIComponent(id), 'PATCH', body);
+    toast('已保存');
+    await openDetail(id);
+  } catch(e){ showErr(e); }
+}
+
+async function delOne(id){
+  const a = state.detail;
+  if (!window.confirm('确定删除 ' + id + '？\n\n会同时删除原文 Markdown 与配图，不可恢复。\n' +
+                      '（标题：' + ((a && a.title) || '') + '）')) return;
+  try {
+    await apiJson('/api/articles/' + encodeURIComponent(id) + '?confirm=yes', 'DELETE');
+    toast('已删除 ' + id);
+    closeDrawer();
+    loadHealth();
+    if (state.view === 'overview') renderOverview();
+    if (state.view === 'review') renderReview(false);
+    if (state.view.indexOf('cat-') === 0) renderCategory(state.view.slice(4));
+  } catch(e){ showErr(e); }
+}
+
+/* ================================================================ 事件委托 */
+document.addEventListener('click', ev => {
+  const stop = ev.target.closest('[data-stop]');
+  if (stop) ev.stopPropagation();
+
+  const el = ev.target.closest('[data-act]');
+  if (!el) return;
+  const act = el.dataset.act;
+
+  // 行内链接（原文/底本）与标了 data-stop 的元素不触发所在行/卡片的点击
+  if (ev.target.closest('a[target="_blank"]') || stop) return;
+
+  const id = el.dataset.id;
+
+  switch(act){
+    case 'tab':
+      ev.preventDefault();
+      switchView(el.dataset.view);
+      break;
+
+    case 'cat-sub':
+      state.sub[el.dataset.cat] = el.dataset.sub;
+      renderCategory(el.dataset.cat);
+      break;
+
+    case 'concept-search':
+      renderConcepts(el.dataset.clear ? '' : ($('#cq') ? $('#cq').value.trim() : ''));
+      break;
+
+    case 'concept': {
+      const name = el.dataset.name;
+      if (state.view.indexOf('cat-') === 0){ renderConcepts(name); }
+      else { closeDrawer(); $('#q').value = name; doSearch(name, 'hybrid'); }
+      break;
+    }
+
+    case 'detail':
+      ev.preventDefault();
+      openDetail(id);
+      break;
+
+    case 'tag':
+      ev.preventDefault();
+      state.tag = el.dataset.tag;
+      closeDrawer();
+      switchView('tag');
+      break;
+
+    case 'close-drawer':
+      closeDrawer();
+      break;
+
+    case 'refresh-stats':   renderOverview(); break;
+    case 'reload-review':   renderReview(); break;
+    case 'reload-cat':      renderCategory(el.dataset.cat); break;
+    case 'reload-settings': renderSettings(); break;
+    case 'reload-rules':    renderRules(); break;
+    case 'save-rules':      saveRules(); break;
+
+    /* 分类设置 */
+    case 'save-cat': saveCategory(el.dataset.cat); break;
+    case 'del-cat':  deleteCategory(el.dataset.cat); break;
+    case 'add-cat':  addCategory(); break;
+
+    case 'set-order':
+      state.order = (el.dataset.order === 'asc') ? 'asc' : 'desc';
+      try { localStorage.setItem('myrag_order', state.order); } catch(e){}
+      if (state.view === 'tag')                  renderTag(state.tag);
+      else if (state.view === 'review')          renderReview(false);
+      else if (state.view.indexOf('cat-') === 0) renderCategory(state.view.slice(4));
+      break;
+
+    case 'confirm-review':
+      confirmReview(id);
+      break;
+
+    case 'setcat':
+      setCategory(id, el.dataset.cat);
+      break;
+
+    case 'drawer-cat':
+      if (state.detail && state.detail.category !== el.dataset.cat) setCategory(id, el.dataset.cat);
+      break;
+
+    case 'verify':
+      verifyOne(id, el);
+      break;
+
+    case 'edit-meta':
+      editMeta(id);
+      break;
+
+    case 'delete':
+      delOne(id);
+      break;
+
+    case 'submit-text':
+      submitText();
+      break;
+
+    case 'research':
+      $('#q').value = el.dataset.q || '';
+      $('#mode').value = el.dataset.mode || 'hybrid';
+      doSearch(el.dataset.q, el.dataset.mode);
+      break;
+
+    case 'zoom': {
+      $('#lightboxImg').src = el.dataset.src;
+      $('#lightbox').classList.add('on');
+      break;
+    }
+    case 'lightbox-close':
+      $('#lightbox').classList.remove('on');
+      break;
+  }
+});
+
+$('#lightbox').addEventListener('click', () => $('#lightbox').classList.remove('on'));
+
+// 类别分段按钮（补录页）
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('#aCat button');
+  if (!b) return;
+  $$('#aCat button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+});
+
+// 检索表单
+$('#searchForm').addEventListener('submit', ev => {
+  ev.preventDefault();
+  doSearch($('#q').value, $('#mode').value);
+});
+
+// 快捷键：Esc 关抽屉/灯箱，/ 聚焦搜索
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape'){
+    if ($('#lightbox').classList.contains('on')) $('#lightbox').classList.remove('on');
+    else if ($('#drawer').classList.contains('on')) closeDrawer();
+  }
+  if (ev.key === '/' && document.activeElement === document.body){
+    ev.preventDefault();
+    $('#q').focus();
+  }
+});
+
+/* ================================================================ 启动 */
+(async function boot(){
+  try {
+    await loadCategories();      // 分类是页签与视图的前提，必须最先拿到
+  } catch(e){
+    console.error(e);
+    toast('分类配置加载失败：' + (e && e.message ? e.message : e), 4600);
+  }
+  loadHealth();
+  switchView('overview');
+  setInterval(loadHealth, 60000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,645 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+MyRag 抓取脚本 — 微信文章正文 / 元数据 / 配图。
+
+归属：Skill 包（仓库 skill/ 目录；安装后位于 Agent 客户端的 skills 目录，
+      如 ~/.workbuddy/skills/MyRag/scripts/）。不属于系统后端。
+依赖：Python 标准库，零第三方包。系统自带 python3 即可运行。
+
+产出（每个成功的链接一个目录）：
+  <stage-root>/<token>/
+    ├── payload.json   元数据 + content_md + 配图相对路径  → 给后端 ingest 读
+    ├── content.md     正文 Markdown                        → 给 Agent 判类读
+    └── img/NN.png     配图原件（原格式）
+
+stdout：一行 JSON 数组简报（不含正文，避免撑爆 Agent 上下文）
+stderr：进度日志
+
+--canon-only：只做 URL 规范化（纯字符串计算，不联网、不抓取），输出
+[{url, url_canon}]。用于抓取**之前**的查重——canon 必须在抓取前就能算出来，
+否则"先查重、避免白抓"做不到。
+
+
+内嵌媒体：文章内的视频 / 视频号卡片**不下载**，但会在正文里留一行
+`> [视频] <链接>` 并记入 payload 的 `embedded` 字段——不许静默丢弃。
+"""
+
+import argparse
+import hashlib
+import html as html_mod
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta, timezone
+
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+REFERER = "https://mp.weixin.qq.com/"
+CST = timezone(timedelta(hours=8))
+def _default_stage_root() -> str:
+    """落地区的兜底路径。
+
+    正常调用时 SKILL.md 会显式传 `--stage-root`（系统根每个人不一样，不能写死）。
+    这里只在没传时兜底，顺序：MYRAG_STAGE_DIR → MYRAG_HOME/data/_stage → ~/MyRag/data/_stage。
+    """
+    env = os.environ.get("MYRAG_STAGE_DIR")
+    if env:
+        return os.path.expanduser(env)
+    home = os.environ.get("MYRAG_HOME")
+    base = os.path.expanduser(home) if home else os.path.expanduser("~/MyRag")
+    return os.path.join(base, "data", "_stage")
+
+
+DEFAULT_STAGE_ROOT = _default_stage_root()
+TIMEOUT = 30
+MIN_HTML_BYTES = 20 * 1024
+MIN_BODY_CHARS = 200
+
+KEEP_PARAMS = ("__biz", "mid", "idx", "sn")
+DROP_PARAMS = ("mpshare", "scene", "srcid", "chksm", "sharer_shareinfo",
+               "sharer_shareinfo_first", "exportkey", "pass_ticket", "ascene",
+               "devicetype", "version", "lang", "nettype", "abtest_cookie",
+               "fontScale", "clicktime", "enterid", "key", "uin")
+
+# 非微信链接归一化时剔除的追踪参数 —— 同一页面因分享来源不同会被算成不同条目，
+# 剔掉它们才能正确查重（PRD §5.2）。
+TRACK_PARAMS = ("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+                "spm", "from", "share_token", "share_source", "share_medium",
+                "ref", "fbclid", "gclid", "yclid", "scene", "srcid")
+
+# 文件直链：不适合按网页存（存下来只是一串二进制），明确拒收并说明原因。
+FILE_EXTS = (".pdf", ".zip", ".rar", ".7z", ".tar", ".gz", ".dmg", ".pkg", ".exe",
+             ".apk", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".epub",
+             ".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".csv")
+
+# 真·验证页的特征词。
+# **不能只看 HTML 体积**：图片合辑等非文章页也可能很小，把它们当成「验证页」
+# 会让用户往错误方向排查（去重新扫码/换网络，其实页面类型根本不对）。
+VERIFY_HINTS = ("环境异常", "去验证", "js_verify", "verify_page", "访问过于频繁",
+                "请输入验证码", "操作过于频繁", "该内容已被发布者删除",
+                "此内容因违规无法查看")
+
+
+# ---------------------------------------------------------------- 工具
+
+def log(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+def http_get(url, referer=None, binary=False):
+    headers = {"User-Agent": UA, "Accept": "*/*"}
+    if referer:
+        headers["Referer"] = referer
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        data = resp.read()
+        return resp.status, (data if binary else data.decode("utf-8", "ignore"))
+
+
+def canonical_url(url):
+    """去掉 #fragment 与追踪参数，只保留识别参数。
+
+    **分两种站点**：
+      · 微信公众号 —— 按 __biz/mid/idx/sn 归一（同一篇文章的分享链接千奇百怪，
+        只有这四个参数能定位到唯一一篇）；
+      · 其他站点   —— 保留原路径，只剔除常见追踪参数、去掉 fragment。
+
+    早期版本对任何 URL 都兜底成 `mp.weixin.qq.com/s`，那会把非微信链接
+    **改写成微信域名**，既查不了重也抓不到东西。
+    """
+    p = urllib.parse.urlsplit((url or "").strip())
+    host = (p.netloc or "").lower()
+
+    if host.endswith("mp.weixin.qq.com"):
+        q = urllib.parse.parse_qsl(p.query, keep_blank_values=False)
+        kept = {k: v for k, v in q if k in KEEP_PARAMS}
+        if kept:
+            query = urllib.parse.urlencode([(k, kept[k]) for k in KEEP_PARAMS if k in kept])
+            return urllib.parse.urlunsplit((p.scheme or "https", p.netloc, "/s", query, ""))
+        return urllib.parse.urlunsplit((p.scheme or "https", p.netloc, p.path, "", ""))
+
+    if not host:
+        return (url or "").strip()
+
+    q = [(k, v) for k, v in urllib.parse.parse_qsl(p.query, keep_blank_values=False)
+         if k.lower() not in TRACK_PARAMS]
+    path = p.path.rstrip("/") or "/"
+    return urllib.parse.urlunsplit((p.scheme or "https", p.netloc, path,
+                                    urllib.parse.urlencode(q), ""))
+
+
+def pick(patterns, text, group=1):
+    for pat in patterns:
+        m = re.search(pat, text, re.S)
+        if m:
+            val = html_mod.unescape(m.group(group)).strip()
+            if val:
+                return val
+    return None
+
+
+# ---------------------------------------------------------------- 正文定位
+
+def extract_container(page):
+    """定位 #js_content 容器内部 HTML，用 div 配对计数取完整内容。"""
+    m = re.search(r'id="js_content"', page)
+    if not m:
+        return None
+    open_end = page.find(">", m.end())
+    if open_end == -1:
+        return None
+    i = open_end + 1
+    depth = 1
+    tag = re.compile(r"<(/?)div\b[^>]*?(/?)>", re.I)
+    while depth > 0:
+        nxt = tag.search(page, i)
+        if not nxt:
+            return page[open_end + 1:]
+        if nxt.group(2) == "/":
+            pass
+        elif nxt.group(1) == "/":
+            depth -= 1
+        else:
+            depth += 1
+        if depth == 0:
+            return page[open_end + 1:nxt.start()]
+        i = nxt.end()
+    return page[open_end + 1:]
+
+
+# ---------------------------------------------------------------- 类型判定与小工具
+
+def is_file_url(url) -> bool:
+    """文件直链（.pdf/.zip/.mp4…）—— 不适合按网页存，要明确拒收而不是硬抓。"""
+    path = urllib.parse.urlsplit(url or "").path.lower()
+    return path.endswith(FILE_EXTS)
+
+
+def looks_like_verify(page) -> bool:
+    """是否真是「环境异常 / 需要验证」页。
+
+    只看 HTML 体积是不够的（图片合辑之类的非文章页同样很小），必须看特征词，
+    否则用户会拿着错误的原因去排查。
+    """
+    return any(h in (page or "") for h in VERIFY_HINTS)
+
+
+def _text_len(html_frag) -> int:
+    """粗估一段 HTML 的可见文本长度（去掉脚本、样式、标签与空白）。"""
+    s = re.sub(r"<(script|style)\b.*?</\1>", " ", html_frag or "", flags=re.S | re.I)
+    s = re.sub(r"<[^>]+>", " ", s)
+    return len(re.sub(r"\s+", "", html_mod.unescape(s)))
+
+
+# ---------------------------------------------------------------- 通用网页正文
+
+def extract_generic(page):
+    """非微信站点的正文定位（尽力而为，非精确）。
+
+    顺序：<article> → <main> → role="main" → 纯文本最长的 <div>。
+    零依赖做不到 readability 那么准，但覆盖面够用；**取不到就返回 None 交给
+    调用方判失败，绝不把导航/页脚硬凑成正文**。
+    """
+    for pat in (r"<article\b[^>]*>(.*?)</article>",
+                r"<main\b[^>]*>(.*?)</main>",
+                r'<div\b[^>]*role="main"[^>]*>(.*?)</div>'):
+        m = re.search(pat, page, re.S | re.I)
+        if m and _text_len(m.group(1)) >= MIN_BODY_CHARS:
+            return m.group(1)
+
+    best, best_len = None, 0
+    for m in re.finditer(r"<div\b[^>]*>(.*?)</div>", page, re.S | re.I):
+        n = _text_len(m.group(1))
+        if n > best_len:
+            best, best_len = m.group(1), n
+    return best if best_len >= MIN_BODY_CHARS else None
+
+
+# ---------------------------------------------------------------- 微信图片合辑
+
+def _match_block(text, start):
+    """从 start 处的 `[` 或 `{` 开始，按配对找出该结构的完整文本。"""
+    open_ch = text[start]
+    close_ch = "]" if open_ch == "[" else "}"
+    depth, i = 0, start
+    while i < len(text):
+        if text[i] == open_ch:
+            depth += 1
+        elif text[i] == close_ch:
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+        i += 1
+    return text[start:]
+
+
+def _extract_picture_list(page):
+    """取微信图片合辑的图片（按顺序）。
+
+    图片**不在 HTML 标签里**，而是页面内的一段 JS 对象：
+        picture_page_info_list: [
+            { cdn_url: '原图', watermark_info: { cdn_url: '水印版' }, ... },
+            ...
+        ]
+    每个元素有**两个** cdn_url，第二个是加水印的版本，所以按元素配对切块、
+    每块只取第一个，否则图片会翻倍。
+    """
+    m = re.search(r"picture_page_info_list\s*:\s*\[", page)
+    if not m:
+        return []
+    block = _match_block(page, m.end() - 1)
+
+    urls, cursor = [], 0
+    for em in re.finditer(r"\{", block):
+        if em.start() < cursor:          # 落在上一个元素内部（如 watermark_info）
+            continue
+        elem = _match_block(block, em.start())
+        cursor = em.start() + len(elem)
+        u = re.search(r"cdn_url\s*:\s*['\"]([^'\"]+)['\"]", elem)
+        if u:
+            u = html_mod.unescape(u.group(1)).strip()
+            if u.startswith("http"):
+                urls.append(u)
+    return urls
+
+
+def _clean_wx_desc(s):
+    """清洗图片合辑的描述文本。
+
+    实测页面里的 og:description 是**被转义过的 JS 片段**，例如：
+        \\x0a\\x26lt;a class=\\x26quot;wx_topic_link\\x26quot; ...\\x26gt;#融资成功\\x26lt;/a\\x26gt;
+    即：`\\x0a` 是换行、`\\x26lt;` 还原一层是 `&lt;`、再还原才是 `<`。
+    这里逐层还原后去掉标签，只留纯文本（话题标签的文字本身保留）。
+    """
+    if not s:
+        return s
+    # 1) JS 风格的 \xHH 转义
+    s = re.sub(r"\\x([0-9a-fA-F]{2})",
+               lambda m: chr(int(m.group(1), 16)), s)
+    # 2) HTML 实体（页面里可能有 1–2 层）
+    for _ in range(2):
+        s = html_mod.unescape(s)
+    # 3) 去标签，保留话题文字
+    s = re.sub(r"<[^>]+>", " ", s)
+    # 4) 收敛空白
+    s = re.sub(r"[ \t\u00a0]+", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
+
+def extract_image_album(page, url):
+    """微信图片合辑（如分享链接带 `t=pages/image_detail`，或页面含 picture_page_info_list）。
+
+    这类页面**没有 `js_content` 容器**，内容主体是一组图（典型是长图/多页图），
+    但有完整文案放在 og:description 里。早期实现按「正文 0 字」直接拒收、
+    还误报成验证页 —— 其实页面是好的，只是模板不同。
+
+    返回 None 表示不像图片合辑，交给调用方按别的类型处理。
+    """
+    if "image_detail" not in (url or "") and "picture_page_info_list" not in page:
+        return None
+
+    title = pick([r'<meta\s+property="og:title"\s+content="([^"]*)"',
+                  r'var\s+msg_title\s*=\s*["\']([^"\']*)'], page)
+    desc = _clean_wx_desc(pick([r'<meta\s+property="og:description"\s+content="([^"]*)"',
+                                r'<meta\s+name="description"\s+content="([^"]*)"'], page))
+
+    imgs = _extract_picture_list(page)
+    if not imgs:                     # 兜底：别的合辑模板可能把图放在标签属性里
+        for pat in (r'data-src="([^"]+)"', r'<img[^>]+src="([^"]+)"'):
+            for u in re.findall(pat, page):
+                u = html_mod.unescape(u).strip()
+                if not u.startswith("http") or u in imgs:
+                    continue
+                if re.search(r"(mmbiz\.qpic\.cn|mmbiz\.qlogo\.cn)", u):
+                    imgs.append(u)
+    if not title and not imgs:
+        return None
+    return {"title": title, "desc": desc, "images": imgs}
+
+
+# ---------------------------------------------------------------- HTML → Markdown
+
+def html_to_markdown(body):
+    """把微信正文 HTML 转成 Markdown。返回 (markdown, image_urls, notes)。"""
+    imgs = []
+    notes = []
+
+    def _img(m):
+        attrs = m.group(0)
+        src = None
+        for p in ('data-src="([^"]+)"', 'src="([^"]+)"'):
+            mm = re.search(p, attrs)
+            if mm and not mm.group(1).startswith("data:"):
+                src = html_mod.unescape(mm.group(1))
+                break
+        if not src:
+            return ""
+        imgs.append(src)
+        return "\n\n\x00IMG%d\x00\n\n" % (len(imgs) - 1)
+
+    def _iframe(m):
+        """内嵌视频等：不下载，但必须留痕，不许静默丢弃。"""
+        attrs = m.group(0)
+        src = None
+        for p in ('data-src="([^"]+)"', 'src="([^"]+)"'):
+            mm = re.search(p, attrs)
+            if mm:
+                src = html_mod.unescape(mm.group(1))
+                break
+        kind = "视频" if "video" in attrs.lower() else "内嵌内容"
+        notes.append(kind)
+        if src:
+            return "\n\n> [%s] %s\n\n" % (kind, src)
+        return "\n\n> [%s（无外链）]\n\n" % kind
+
+    h = re.sub(r"<img\b[^>]*>", _img, body, flags=re.I)
+    h = re.sub(r"<iframe\b[^>]*>.*?</iframe>", _iframe, h, flags=re.S | re.I)
+    h = re.sub(r"<iframe\b[^>]*/?>", _iframe, h, flags=re.I)
+    h = re.sub(r"<script\b.*?</script>", "", h, flags=re.S | re.I)
+    h = re.sub(r"<style\b.*?</style>", "", h, flags=re.S | re.I)
+    h = re.sub(r"<svg\b.*?</svg>", "", h, flags=re.S | re.I)
+    # 微信生态卡片：只记真媒体卡片（视频号 / 小程序等），排版辅助标签忽略
+    NOISE_CARDS = {"style-type", "common-profile", "common_style_type",
+                   "common_profile", "voice", "mpvoice"}
+    for cm in re.finditer(r"<mp-([\w-]+)([^>]*)>", h, re.I):
+        name, attrs = cm.group(1).lower(), cm.group(2)
+        if name in NOISE_CARDS:
+            continue
+        if re.search(r"data-(vid|appid|src|miniprogram|path|type)\b", attrs, re.I):
+            notes.append("卡片:" + name)
+    h = re.sub(r"<mp-[\w-]+\b[^>]*>", "", h, flags=re.I)
+    h = re.sub(r"</mp-[\w-]+>", "", h, flags=re.I)
+
+    # 代码块
+    def _pre(m):
+        code = re.sub(r"<[^>]+>", "", m.group(1))
+        code = html_mod.unescape(code).strip("\n")
+        fence = "```"
+        while fence in code:
+            fence += "`"
+        return "\n\n%s\n%s\n%s\n\n" % (fence, code, fence)
+
+    h = re.sub(r"<pre\b[^>]*>(.*?)</pre>", _pre, h, flags=re.S | re.I)
+
+    # 表格
+    def _table(m):
+        rows = []
+        for tr in re.findall(r"<tr\b[^>]*>(.*?)</tr>", m.group(1), re.S | re.I):
+            cells = [re.sub(r"\s+", " ",
+                            html_mod.unescape(re.sub(r"<[^>]+>", "", c))).strip()
+                     for c in re.findall(r"<t[hd]\b[^>]*>(.*?)</t[hd]>", tr, re.S | re.I)]
+            if cells:
+                rows.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
+        if not rows:
+            return ""
+        sep = "| " + " | ".join("---" for _ in rows[0].strip("| ").split("|")) + " |"
+        return "\n\n" + rows[0] + "\n" + sep + "\n" + "\n".join(rows[1:]) + "\n\n"
+
+    h = re.sub(r"<table\b[^>]*>(.*?)</table>", _table, h, flags=re.S | re.I)
+
+    # 标题
+    for n in range(1, 7):
+        h = re.sub(r"<h%d\b[^>]*>(.*?)</h%d>" % (n, n),
+                   lambda m, n=n: "\n\n" + "#" * n + " " + re.sub(r"<[^>]+>", "", m.group(1)).strip() + "\n\n",
+                   h, flags=re.S | re.I)
+
+    # 列表 / 引用 / 换行 / 段落
+    h = re.sub(r"<li\b[^>]*>", "\n- ", h, flags=re.I)
+    h = re.sub(r"<blockquote\b[^>]*>", "\n\n> ", h, flags=re.I)
+    h = re.sub(r"</blockquote>", "\n\n", h, flags=re.I)
+    h = re.sub(r"<br\s*/?>", "\n", h, flags=re.I)
+    h = re.sub(r"<p\b[^>]*>", "\n\n", h, flags=re.I)
+    h = re.sub(r"</p>", "\n\n", h, flags=re.I)
+    h = re.sub(r"</?(section|div|tr|ul|ol|figure|figcaption|tbody|thead)\b[^>]*>", "\n", h, flags=re.I)
+
+    # 行内
+    h = re.sub(r"<(strong|b)\b[^>]*>(.*?)</\1>", lambda m: "**" + re.sub(r"<[^>]+>", "", m.group(2)).strip() + "**", h, flags=re.S | re.I)
+    h = re.sub(r"<(em|i)\b[^>]*>(.*?)</\1>", lambda m: "*" + re.sub(r"<[^>]+>", "", m.group(2)).strip() + "*", h, flags=re.S | re.I)
+    h = re.sub(r"<code\b[^>]*>(.*?)</code>", lambda m: "`" + html_mod.unescape(re.sub(r"<[^>]+>", "", m.group(1))).strip() + "`", h, flags=re.S | re.I)
+    h = re.sub(r"<a\b[^>]*href=\"([^\"]*)\"[^>]*>(.*?)</a>",
+               lambda m: "[%s](%s)" % (re.sub(r"<[^>]+>", "", m.group(2)).strip(), html_mod.unescape(m.group(1))),
+               h, flags=re.S | re.I)
+
+    h = re.sub(r"<[^>]+>", "", h)
+    h = html_mod.unescape(h)
+    h = re.sub(r"[ \t]+\n", "\n", h)
+    h = re.sub(r"\n{3,}", "\n\n", h)
+    h = re.sub(r"[ \t]{2,}", " ", h)
+    return h.strip(), imgs, notes
+
+
+# ---------------------------------------------------------------- 单条抓取
+
+def fetch_one(url, stage_root, sleep_before):
+    if sleep_before:
+        time.sleep(sleep_before)
+    t0 = time.time()
+    out = {"url": url, "url_canon": canonical_url(url), "ok": False,
+           "title": None, "source": None, "author": None, "published_at": None,
+           "chars": 0, "images": 0, "embedded": [], "token": None, "fail_reason": None,
+           "kind": None}
+
+    # ---- 先判定这条链接该不该抓、按什么抓 ----
+    if not re.match(r"^https?://", url or ""):
+        out["fail_reason"] = "bad_url"
+        out["detail"] = "只接受 http/https 链接"
+        return out
+    if is_file_url(url):
+        out["fail_reason"] = "unsupported_file"
+        out["detail"] = ("文件直链（%s）不适合按网页存：请存它的网页版，或直接下载文件"
+                         % (os.path.splitext(urllib.parse.urlsplit(url).path)[1] or "文件"))
+        return out
+
+    host = urllib.parse.urlsplit(url).netloc.lower()
+    is_wx = host.endswith("mp.weixin.qq.com")
+    out["kind"] = "wechat" if is_wx else "web"
+
+    try:
+        status, page = http_get(url, referer=(REFERER if is_wx else None))
+    except urllib.error.HTTPError as e:
+        out["fail_reason"] = "network"
+        out["detail"] = "HTTP %s" % e.code
+        return out
+    except Exception as e:
+        out["fail_reason"] = "network"
+        out["detail"] = "%s: %s" % (type(e).__name__, e)
+        return out
+
+    body = None
+    album = None
+    title = None
+    if is_wx:
+        body = extract_container(page)
+        if body is None:                       # 不是文章模板 → 试试图片合辑
+            album = extract_image_album(page, url)
+    else:
+        body = extract_generic(page)
+
+    if album is not None:
+        title = album["title"]
+        # 标题不在这里加 —— 下面 `if title:` 会统一加一次，否则会写重
+        head = ""
+        if album["desc"]:
+            head += album["desc"] + "\n\n"
+        head += ("> 微信图片合辑 · 共 %d 张图（这类分享页没有正文，内容主体是图片）\n\n"
+                 % len(album["images"]))
+        md = head + "".join("\x00IMG%d\x00\n\n" % i for i in range(len(album["images"])))
+        img_urls, notes = album["images"], ["图片合辑"]
+        out["kind"] = "wx_album"
+    else:
+        md, img_urls, notes = html_to_markdown(body or "")
+    body_len = len(md)
+
+    if body_len < MIN_BODY_CHARS:
+        if looks_like_verify(page):
+            out["fail_reason"] = "verify_page"
+            out["detail"] = "微信返回了验证/异常页，稍后重试或换网络"
+        elif is_wx:
+            out["fail_reason"] = "not_article"
+            out["detail"] = ("微信域名但不是文章页，也没认出图片合辑；"
+                             "分享卡片请在微信里右上角「用浏览器打开」后重新复制链接")
+        else:
+            out["fail_reason"] = "parse_failed"
+            out["detail"] = ("抓到了页面（%dB）但定位不到正文，"
+                             "可能需登录或页面结构特殊"
+                             % len(page.encode("utf-8", "ignore")))
+        return out
+
+    title = title or pick([r'<meta\s+property="og:title"\s+content="([^"]*)"',
+                           r'var\s+msg_title\s*=\s*["\']([^"\']*)',
+                           r"<title[^>]*>(.*?)</title>"], page)
+    source = pick([r'id="js_name"[^>]*>(.*?)</a>', r'data-nickname="([^"]+)"',
+                   r'<meta\s+property="og:site_name"\s+content="([^"]*)"'], page)
+    if source:
+        source = re.sub(r"<[^>]+>", "", source).strip()
+    author = pick([r'<meta\s+property="og:article:author"\s+content="([^"]*)"',
+                   r'var\s+author\s*=\s*["\']([^"\']*)',
+                   r'<meta\s+name="author"\s+content="([^"]*)"'], page)
+
+    published = None
+    ct = pick([r'var\s+ct\s*=\s*"(\d{9,13})"', r'var\s+create_time\s*=\s*"(\d{9,13})"'], page)
+    if ct:
+        ts = int(ct)
+        if ts > 10 ** 11:
+            ts //= 1000
+        published = datetime.fromtimestamp(ts, CST).isoformat()
+    else:
+        iso = pick([r'<meta\s+property="article:published_time"\s+content="([^"]*)"'], page)
+        if iso:
+            published = iso
+
+    # 落 stage
+    token = hashlib.md5((out["url_canon"] + str(time.time())).encode()).hexdigest()[:8]
+    sdir = os.path.join(stage_root, token)
+    idir = os.path.join(sdir, "img")
+    os.makedirs(idir, exist_ok=True)
+
+    img_rel = []
+    for i, iu in enumerate(img_urls, 1):
+        try:
+            st, data = http_get(iu, referer=REFERER, binary=True)
+            if st != 200 or len(data) < 100:
+                continue
+            ct_hdr = "png"
+            if data[:3] == b"\xff\xd8\xff":
+                ct_hdr = "jpg"
+            elif data[:4] == b"GIF8":
+                ct_hdr = "gif"
+            elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+                ct_hdr = "webp"
+            name = "%02d.%s" % (i, ct_hdr)
+            with open(os.path.join(idir, name), "wb") as f:
+                f.write(data)
+            img_rel.append("img/" + name)
+        except Exception as e:
+            log("   ! 配图 %d 下载失败: %s" % (i, e))
+
+    # 正文里把占位符换成实际落盘路径（未下成功的图删掉占位）
+    def _repl(m):
+        k = int(m.group(1))
+        if k < len(img_rel):
+            return "![](img/%s)" % os.path.basename(img_rel[k])
+        return ""
+
+    md = re.sub(r"\x00IMG(\d+)\x00", _repl, md)
+    if title:
+        md = "# " + title + "\n\n" + md
+
+    payload = {
+        "url": url, "url_canon": out["url_canon"],
+        "kind": out["kind"],
+        "title": title, "source": source, "author": author,
+        "published_at": published,
+        "content_md": md,
+        "images": img_rel,
+        "embedded": notes,
+    }
+    with open(os.path.join(sdir, "payload.json"), "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    with open(os.path.join(sdir, "content.md"), "w", encoding="utf-8") as f:
+        f.write(md)
+
+    out.update({"ok": True, "title": title, "source": source, "author": author,
+                "published_at": published, "chars": len(md),
+                "images": len(img_rel), "token": token,
+                "embedded": notes,
+                "elapsed": round(time.time() - t0, 1)})
+    return out
+
+
+# ---------------------------------------------------------------- 入口
+
+def main():
+    ap = argparse.ArgumentParser(description="MyRag 内容抓取（零依赖）：微信文章 / 微信图片合辑 / 其他网页")
+    ap.add_argument("--urls-file", required=True, help="一行一条链接，# 开头与空行忽略")
+    ap.add_argument("--stage-root", default=DEFAULT_STAGE_ROOT)
+    ap.add_argument("--sleep", type=float, default=2.0, help="每条之间的间隔秒数")
+    ap.add_argument("--canon-only", action="store_true",
+                    help="只做 URL 规范化（纯字符串、不联网），输出 [{url, url_canon}]，供抓取前查重")
+    args = ap.parse_args()
+
+    with open(args.urls_file, encoding="utf-8") as f:
+        raw = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
+
+    if args.canon_only:
+        print(json.dumps([{"url": u, "url_canon": canonical_url(u)} for u in raw],
+                         ensure_ascii=False))
+        return
+
+    seen, urls = set(), []
+    for u in raw:
+        c = canonical_url(u)
+        if c not in seen:
+            seen.add(c)
+            urls.append(u)
+
+    log("待抓 %d 条（原始 %d 条，去重后）" % (len(urls), len(raw)))
+    os.makedirs(args.stage_root, exist_ok=True)
+
+    results = []
+    for i, u in enumerate(urls, 1):
+        log("[%d/%d] %s" % (i, len(urls), u[:70]))
+        r = fetch_one(u, args.stage_root, args.sleep if i > 1 else 0)
+        r["idx"] = i
+        if r["ok"]:
+            log("    OK  [%s] %s字 %s图 token=%s%s" % (
+                r.get("kind") or "wechat", r["chars"], r["images"], r["token"],
+                "  内嵌:" + ",".join(r["embedded"]) if r.get("embedded") else ""))
+        else:
+            log("    FAIL %s %s" % (r["fail_reason"], r.get("detail", "")))
+        results.append(r)
+
+    ok = sum(1 for r in results if r["ok"])
+    log("完成：成功 %d / 失败 %d" % (ok, len(results) - ok))
+    print(json.dumps(results, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()
