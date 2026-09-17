@@ -163,10 +163,25 @@ main{padding:24px 20px; max-width:1180px; margin:0 auto}
    窄屏回退成单列 —— 索引那几行文字在 40% 宽度下会折行折得很难看。 */
 .dash2{display:grid; grid-template-columns:6fr 4fr; gap:14px; margin-top:16px}
 .dash2 .panel + .panel{margin-top:0}   /* 同行时不该再叠面板间的垂直间距 */
+/* 让趋势图吃掉左面板的剩余高度。不这样做的话，右面板更高时左边会在柱状图下方
+   留一大块空白，看着像渲染坏了。min-height 保住柱子本身的可用高度。 */
+.dash2 .panel:first-child{display:flex; flex-direction:column}
+.dash2 .panel:first-child .trend{flex:1; height:auto; min-height:112px}
 /* 紧跟 .dash2 的那个面板**不满足** `.panel + .panel`（它的前一个兄弟是 .dash2，
    不是 .panel），不补这条就会和上一行紧贴。 */
 .dash2 + .panel{margin-top:16px}
 @media (max-width:980px){ .dash2{grid-template-columns:1fr} }
+/* 占用构成：横向堆叠条 —— 总长 = 总占用，各段宽度 = 各部分占比。
+   比逐项列数字直观：**"配图占了绝大部分"这件事一眼就能看出来**。
+   单位统一成 MB（见 toMB），否则混着 KB/MB 没法横向比长度。 */
+.usage{display:flex; height:14px; border-radius:7px; overflow:hidden;
+       background:var(--panel-2); margin:3px 0 9px}
+.usage i{display:block; min-width:3px}   /* 占比极小的部分也要看得见，否则像缺失 */
+.legend{display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color:var(--text-2)}
+.legend span{display:inline-flex; align-items:center; gap:5px}
+.legend .sw{width:9px; height:9px; border-radius:2px; flex:none}
+.legend b{font-weight:600; color:var(--text)}
+.legend em{font-style:normal; opacity:.65}
 /* 最新入库：紧凑列表，一行一篇 */
 .latest .li{display:flex; align-items:center; gap:10px; padding:8px 2px;
             border-top:1px solid var(--border); cursor:pointer}
@@ -613,6 +628,8 @@ function bytes(n){
   while (n >= 1024 && i < u.length-1){ n /= 1024; i++; }
   return (i === 0 ? n : n.toFixed(1)) + ' ' + u[i];
 }
+/* 固定用 MB。占用构成要**横向比长度**，混着 KB/MB 就没法比（见 .usage 说明）。*/
+function toMB(n){ return ((Number(n) || 0) / 1048576).toFixed(1) + ' MB'; }
 /* ---- 分类辅助（全部读 state.cats，无写死分类名）---- */
 function catOf(k){ return state.catMap[k] || null; }
 function catName(k){ const c = catOf(k); return c ? c.name : k; }
@@ -934,6 +951,23 @@ async function renderOverview(){
     </div>`).join('');
 
   const idx = s.index || {};
+
+  // 占用构成。**单位统一成 MB**：混着 KB/MB 没法横向比长度，而这条状图的全部意义
+  // 就是比长度。各部分按占比分色块，宽度即占比。
+  const sz = s.size || {};
+  const usage = [
+    { k: '配图', v: sz.media || 0, c: 'var(--c3)' },
+    { k: '数据库', v: sz.db || 0, c: 'var(--c0)' },
+    { k: '原文', v: sz.raw || 0, c: 'var(--c1)' },
+  ].filter(u => u.v > 0);
+  const usageTotal = sz.total || usage.reduce((a, u) => a + u.v, 0) || 1;
+  const pctOf = v => (v / usageTotal * 100);
+  const usageBar = usage.map(u =>
+    `<i style="width:${pctOf(u.v).toFixed(2)}%;background:${u.c}"
+        title="${esc(u.k)} ${toMB(u.v)}"></i>`).join('');
+  const usageLegend = usage.map(u =>
+    `<span><i class="sw" style="background:${u.c}"></i>${esc(u.k)}
+       <b>${toMB(u.v)}</b><em>${pctOf(u.v).toFixed(1)}%</em></span>`).join('');
   box.innerHTML = `
     <div class="sec-head">
       <h2>库体量</h2>
@@ -970,11 +1004,10 @@ async function renderOverview(){
           <div class="k">分段总数</div><div class="v">${s.chunks || 0} 段（含每篇元数据段）</div>
           <div class="k">概念数</div><div class="v">${s.concepts || 0} 个</div>
           <div class="k">词法矩阵</div><div class="v">${idx.sparse_rows || 0} × ${idx.sparse_cols || 0}，非零 ${idx.sparse_nnz || 0}</div>
-          <div class="k">占用合计</div><div class="v">${bytes((s.size||{}).total)}</div>
-          <div class="k">&nbsp;&nbsp;数据库</div><div class="v">${bytes((s.size||{}).db)}</div>
-          <div class="k">&nbsp;&nbsp;原文</div><div class="v">${bytes((s.size||{}).raw)}</div>
-          <div class="k">&nbsp;&nbsp;配图</div><div class="v">${bytes((s.size||{}).media)}</div>
+          <div class="k">占用合计</div><div class="v">${toMB(sz.total)}</div>
         </div>
+        <div class="usage">${usageBar}</div>
+        <div class="legend">${usageLegend}</div>
       </div>
     </div>
 
