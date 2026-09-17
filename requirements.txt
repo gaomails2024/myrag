@@ -24,3 +24,7 @@ modelscope
 
 # ---- 仅备选模型 bge-large-zh-v1.5 退回 FTS5 方案时需要（PRD §7.1），一期不装 ----
 # jieba
+
+# ---- 检索评测（scripts/eval.py，PRD §8.5）----
+# 只被评测脚本使用，**不在后端运行时依赖里**
+pyyaml

@@ -106,6 +106,36 @@ TOP_PER_ROUTE = 30
 SEARCH_TOP_N = 20
 SPARSE_KNN_CAP = 200000  # 有过滤条件时 KNN 取全量的上限，防呆
 
+# ---------------------------------------------------------------- Reranker 精排（PRD §8.4）
+# 为什么要它：BGE-M3 是 **bi-encoder**（问题与文档分别编码后比距离），只能回答
+# 「这段话和问题语义像不像」，回答不了「到底答没答到点上」。初检 Top-N 里混进的
+# 「语义相近但无用」的段会原样进 prompt，LLM 照单全收、反被带偏。
+#
+# RERANK_ENABLED 默认开，但**加载失败会自动跳过**（见 rerank.py），
+# 所以老部署即使没下 reranker 权重也不会挂 —— 只是没有精排而已。
+RERANK_ENABLED = _env("MYRAG_RERANK", "1").strip().lower() not in ("0", "false", "no", "off")
+RERANK_MODEL_ID = _env("MYRAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
+# 进入精排的候选数。**本机实测**（CPU、M-series、bge-reranker-v2-m3）：
+#   top_n=20 → 1849ms   top_n=12 → 1090ms   top_n=10 → 908ms   top_n=8 → 744ms
+#
+# ⚠️ **不要为了省延迟砍这个值**：精排的价值恰恰在于「把 RRF 排错的捞回来」，
+# 候选砍到 10 时，评测集里 q05 的目标段（RRF 第 9 位附近）就捞不回来了 ——
+# MRR 从 1.000 掉回 0.911。要省延迟请改 RERANK_MAX_CHARS。
+RERANK_TOP_N = int(_env("MYRAG_RERANK_TOP_N", "20"))
+# 送进 cross-encoder 的文本上限（字符）—— **延迟的第一大来源，也是调它的地方**。
+# cross-encoder 耗时几乎正比于序列长度，而完整段落可达 1024 token。实测：
+#   top_n=12 时  480 字符 → 1615ms   320 → 1121ms   240 → 852ms   160 → 604ms
+# 不截断（送全文）时整次检索从 0.6s 涨到 4.7s。
+#
+# ⚠️ **但别为了延迟砍到 320 以下**：评测集显示 160 字符会损失精度
+# （20 候选时 MRR 从 1.000 掉到 0.900 —— 太短了判断不准）。
+# 320 是实测的「效果与延迟」平衡点；想更快请改用更小的 reranker 模型。
+RERANK_MAX_CHARS = int(_env("MYRAG_RERANK_MAX_CHARS", "320"))
+KNOWN_RERANK_PATH = os.path.expanduser(
+    _env("MYRAG_KNOWN_RERANK_PATH",
+         "~/.cache/modelscope/models/BAAI--bge-reranker-v2-m3/snapshots/master")
+)
+
 # ---------------------------------------------------------------- 分类（PRD §5.5）
 # 分类**不写死在代码里**。出厂默认只在这里（播种用），运行时一律以数据库
 # categories 表为准（工作台「分类设置」可改名字、增删分类、改划分标准、改检索方式）。
@@ -252,6 +282,60 @@ def resolve_model_path() -> str:
     from modelscope import snapshot_download
 
     return str(snapshot_download(EMBED_MODEL_ID))
+
+
+# 权重文件的常见后缀。判断「模型在不在」必须**看文件**，不能只看目录：
+# 中断的下载会留下空壳目录，于是加载要到更深处才失败，错误信息也变难懂（实测踩过）。
+_WEIGHT_GLOBS = ("*.safetensors", "*.bin", "*.ckpt", "*.h5", "*.msgpack")
+
+
+def _has_weights(path) -> bool:
+    """目录里是否真的存在模型权重文件（而不只是个空壳）。"""
+    if not path:                     # 环境变量未设置时是 None，不能直接丢给 Path()
+        return False
+    p = Path(path)
+    if not p.is_dir():
+        return False
+    return any(next(p.rglob(g), None) is not None for g in _WEIGHT_GLOBS)
+
+
+def resolve_rerank_path(allow_download: bool = False) -> str:
+    """解析 reranker 本地权重目录。
+
+    **默认只查本地、绝不联网**（与 `resolve_model_path` 的关键区别）：
+    权重可能有 2GB 级、下载要几分钟，而 `get_model()` 是在**检索请求路径**上
+    被调用的 —— 一旦在那里触发下载，一次普通检索就会挂住直到超时（已踩过）。
+
+    embedding 模型可以联网兜底，是因为没有它整个系统不可用；reranker 只是增强项，
+    **没有它检索照常工作**，所以没理由让用户在一次搜索里等下载。
+
+    要下载请走显式入口：`.venv/bin/python scripts/fetch_rerank.py`
+    """
+    env = os.environ.get("MYRAG_RERANK_PATH")
+    if _has_weights(env):
+        return str(env)
+
+    try:
+        from modelscope import snapshot_download
+
+        p = snapshot_download(RERANK_MODEL_ID, local_files_only=True)
+        if _has_weights(p):
+            return str(p)
+    except Exception:
+        pass
+
+    if _has_weights(KNOWN_RERANK_PATH):
+        return KNOWN_RERANK_PATH
+
+    if not allow_download:
+        raise RuntimeError(
+            "reranker 权重不在本地（%s）。这不影响检索，只是没有精排。\n"
+            "要启用请先下载：.venv/bin/python scripts/fetch_rerank.py"
+            % RERANK_MODEL_ID)
+
+    from modelscope import snapshot_download
+
+    return str(snapshot_download(RERANK_MODEL_ID))
 
 
 def ensure_dirs() -> None:

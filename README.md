@@ -208,8 +208,12 @@ MyRag/
 │   ├── db.py              # 连接与通用查询
 │   ├── ingest.py          # 入库：落盘 + 切段 + 向量化
 │   ├── embed.py           # BGE-M3 封装
-│   ├── search.py          # 两路检索 + RRF 融合
+│   ├── search.py          # 两路检索 + RRF 融合 + reranker 精排
+│   ├── rerank.py          # cross-encoder 精排（缺权重自动跳过）
 │   └── verify.py          # GitHub 核查
+├── eval/                  # 检索评测（只读，不碰数据）
+│   ├── queries.yaml       # 评测集：query + 相关文章标注
+│   └── reports/           # 每次跑分的报告（md + json，便于前后对比）
 ├── web/index.html         # 工作台（单文件，无构建）
 ├── skill/                 # Skill 包（安装脚本部署到客户端）
 │   ├── SKILL.md           # 给 Agent 的指令（含 {{MYRAG_HOME}} 占位符）
@@ -217,7 +221,9 @@ MyRag/
 ├── scripts/
 │   ├── install.sh         # 安装
 │   ├── start.sh / stop.sh / status.sh
-│   └── reindex.py         # 重建分段与索引
+│   ├── reindex.py         # 重建分段与索引
+│   ├── eval.py            # 跑检索评测（见 §8）
+│   └── fetch_rerank.py    # 下载精排权重（约 2.2GB，可选）
 └── data/                  # 运行数据（不进版本库）
     ├── wxk.db             # SQLite
     ├── raw/               # 原文 Markdown（只写不改）
@@ -227,7 +233,72 @@ MyRag/
 
 ---
 
-## 8. 常见问题
+## 8. 检索是怎么做的（实现细节 + 已知局限）
+
+这一节以前缺失，读者只能靠猜（比如"两路里那一路是 BM25 还是模型自带的稀疏输出？"）。
+
+### 两路召回 + RRF 融合
+
+| 路 | 来源 | 说明 |
+|---|---|---|
+| dense | **BGE-M3 的 dense 向量**（1024 维） | 语义相似 |
+| sparse | **BGE-M3 的 sparse 词权重** | **不是 BM25/FTS5** —— 直接用模型输出的 lexical weights，全程无分词步骤 |
+
+两路各取 30 条，用 **RRF（K=60）** 融合。
+
+融合后的 `score` 是排名融合值 `Σ 1/(K+rank)`，**理论上限 ≈ 0.0328**。所以界面上看到
+`0.02~0.03` **不是"相关率只有 2%~3%"**，而是正常值域；该分数只在单次查询内可比，
+判断相关性要看评测指标（见下）。
+
+**ColBERT 第三路未启用**：BGE-M3 一次前向其实能同时输出 dense + sparse + ColBERT，
+但 ColBERT 是多向量表示（存储与 late-interaction 计算都重得多），当前用不上。
+
+### 精排（reranker）
+
+初检之后，用 `bge-reranker-v2-m3` 对头部候选再过一次 cross-encoder 精排。
+
+**为什么需要**：bi-encoder 只能判断"这段话和问题语义**像不像**"，判断不了"**答没答到点上**"。
+初检里的噪声段若原样送进下游 LLM 的 prompt，会被照单全收、反而带偏。
+
+本机实测（CPU）：**MRR 0.778 → 1.000**，延迟 **59ms → 614ms**。
+
+权重约 **2.2 GB，需手动下载**：
+
+```bash
+.venv/bin/python scripts/fetch_rerank.py
+```
+
+没下载也能正常用——检索会自动跳过精排，其余功能不受影响。要关掉：`.env` 里写 `MYRAG_RERANK=0`。
+
+### 向量索引：sqlite-vec（**没有 ANN**）
+
+向量存在 SQLite 的 `vec0` 虚拟表里，靠 **`sqlite-vec` 扩展**做 KNN。
+它**是暴力扫描 + SIMD 加速，没有 HNSW/IVF 这类近似索引**。
+
+代价是检索延迟随段数**线性增长**。当前规模（786 段 / 向量约 3.2 MB）完全无感，
+几万段才需要认真对待。**没有 ANN 是自觉的取舍**——换来"单文件数据库、零外部服务"。
+真到更大规模，换 Qdrant / pgvector 是顺理成章的下一步。
+
+### 怎么验证检索效果
+
+```bash
+.venv/bin/python scripts/eval.py --label 我的改动     # 报告落 eval/reports/
+```
+
+评测集在 `eval/queries.yaml`。IR 指标（Recall@k / MRR / nDCG）零成本、每次改动都能跑；
+RAGAS 那种需要 LLM 评判的属于更深一层复核。
+
+### 已知局限（不回避）
+
+| 局限 | 影响 | 现状 |
+|---|---|---|
+| **无 ANN 索引** | 段数增长后检索延迟线性上升 | 有意取舍，见上 |
+| **评测集仅 10 条** | 精排后已全部满分 → **饱和，测不出进一步改进** | 待扩到 20–30 条并加难例 |
+| 配图不参与检索 | 图片合辑类内容基本搜不到 | 计划：入库时 OCR 文字化 |
+| 配图无节制落盘 | 实测占全库 **96%** 体积 | 计划：入库过滤 + 遗忘机制 |
+| ColBERT 路未启用 | 精度仍有提升空间 | 收益/成本未量化，待评估 |
+
+## 9. 常见问题
 
 **工作台打不开**
 ```bash
@@ -254,14 +325,14 @@ bash scripts/start.sh      # 不在就起
 
 ---
 
-## 9. 设计文档
+## 10. 设计文档
 
 `PRD.md` 是完整的实现规格：数据模型、切段规则、检索融合、API 契约、验收标准、
 以及各项设计取舍的原因（比如「抓取为什么放在 Skill 侧」）。要改架构先读它。
 
 ---
 
-## 10. 许可证
+## 11. 许可证
 
 [MIT](LICENSE) © 2026 JL
 

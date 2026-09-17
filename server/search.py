@@ -13,7 +13,7 @@ import threading
 import numpy as np
 from scipy.sparse import csr_matrix
 
-from . import config, db, embed
+from . import config, db, embed, rerank
 
 _lock = threading.Lock()
 _index = None
@@ -252,6 +252,24 @@ def search(conn, q, mode="hybrid", category=None, tag=None,
                        WHERE c.id IN (%s)""" % ",".join("?" * len(cids)), cids):
                 info[int(r["id"])] = dict(r)
 
+            # ---- 精排（PRD §8.4）----
+            # RRF 只能保证「两路都排在前面」，判断不了「答没答到点上」。cross-encoder
+            # 无法预计算文档侧向量，所以只对头部候选过一遍，其余保持原序 ——
+            # 排序的意义本来就在头部。
+            n_rr = min(len(top), config.RERANK_TOP_N)
+            if n_rr > 1:
+                head = top[:n_rr]
+                texts = []
+                for cid, _ in head:
+                    row = info.get(cid) or {}
+                    # 带上标题与标题链：只看段落文字，reranker 也难判断"答到点上没有"
+                    texts.append("%s ｜ %s\n%s" % (row.get("title") or "",
+                                                   row.get("heading_path") or "",
+                                                   row.get("text") or ""))
+                order = rerank.rerank_docs(q, texts)
+                if order:                       # None = 不可用/失败 → 保留原顺序
+                    top = [head[i] for i in order] + top[n_rr:]
+
             hits = {}
             for cid, sc in top:
                 row = info.get(cid)
@@ -273,7 +291,10 @@ def search(conn, q, mode="hybrid", category=None, tag=None,
                         "rank_dense": rk.get(di) if di is not None else None,
                         "rank_sparse": rk.get(si) if si is not None else None,
                     })
-            ranked = sorted(hits.values(), key=lambda x: -x["score"])[:limit]
+            # **不要按 score 再排一次**：score 是 RRF 排名分，重排会把上面的精排结果
+            # 覆盖掉。dict 的插入顺序就是 top 的顺序（已排好）。不开精排时两者等价：
+            # top 本就按 RRF 降序，同一篇文章的多个段只有第一个会建档。
+            ranked = list(hits.values())[:limit]
 
     seen = set(h["article_id"] for h in ranked)
     ft = _fulltext_fallback(conn, q, fsql, fparams, seen,
