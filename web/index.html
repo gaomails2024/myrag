@@ -159,6 +159,19 @@ main{padding:24px 20px; max-width:1180px; margin:0 auto}
 .card.c-warn .v{color:var(--warn)}
 
 /* 趋势条 */
+/* 概览：近 7 日入库 与 索引与占用 同行，宽度 6:4。
+   窄屏回退成单列 —— 索引那几行文字在 40% 宽度下会折行折得很难看。 */
+.dash2{display:grid; grid-template-columns:6fr 4fr; gap:14px; margin-top:16px}
+.dash2 .panel + .panel{margin-top:0}   /* 同行时不该再叠面板间的垂直间距 */
+@media (max-width:980px){ .dash2{grid-template-columns:1fr} }
+/* 最新入库：紧凑列表，一行一篇 */
+.latest .li{display:flex; align-items:center; gap:10px; padding:8px 2px;
+            border-top:1px solid var(--border); cursor:pointer}
+.latest .li:first-child{border-top:0}
+.latest .li:hover{background:var(--panel-2)}
+.latest .li .ti{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+                white-space:nowrap; font-size:13.5px}
+.latest .li .dt{flex:none; font-size:12px; color:var(--text-2)}
 .trend{display:flex; align-items:flex-end; gap:10px; height:112px; padding:6px 2px 0}
 .trend .col{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; height:100%}
 .trend .bar{
@@ -888,8 +901,14 @@ function compactRowHtml(a, cat){
 async function renderOverview(){
   const box = $('#view-overview');
   box.innerHTML = `<div class="empty">加载中…</div>`;
-  let s;
-  try { s = await apiGet('/api/stats'); }
+  let s, latest;
+  try {
+    // 并行取：统计与最新列表互不依赖，串行会白等一个来回
+    [s, latest] = await Promise.all([
+      apiGet('/api/stats'),
+      apiGet('/api/articles?order=desc&page_size=10'),
+    ]);
+  }
   catch(e){ box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
   state.stats = s;
 
@@ -900,6 +919,15 @@ async function renderOverview(){
       <div class="n">${d.count}</div>
       <div class="bar ${d.count === 0 ? 'zero' : ''}" style="height:${Math.round(d.count / max * 62) + 4}%"></div>
       <div class="d">${esc(d.date.slice(5))}</div>
+    </div>`).join('');
+
+  // 最新入库：一行一篇，点整行进详情（与列表页行为一致）。
+  // order=desc 是按**入库时间**排，不是发布时间 —— 概览要看的是"我刚收了什么"。
+  const latestRows = (latest.items || []).map(a => `
+    <div class="li" data-act="detail" data-id="${attr(a.id)}">
+      <span class="ti">${esc(a.title)}</span>
+      ${catBadge(a.category)}
+      <span class="dt">${esc(String(a.collected_at || '').slice(5, 10))}</span>
     </div>`).join('');
 
   const idx = s.index || {};
@@ -924,23 +952,33 @@ async function renderOverview(){
         <div class="foot">判类待确认 / 复评到期</div></button>
     </div>
 
-    <div class="panel panel-pad" style="margin-top:16px">
-      <div class="sec-head" style="margin-bottom:4px">
-        <h2>近 7 日入库</h2>
-        <span class="sub">合计 ${s.last7_total || 0} 条</span>
+    <div class="dash2">
+      <div class="panel panel-pad">
+        <div class="sec-head" style="margin-bottom:4px">
+          <h2>近 7 日入库</h2>
+          <span class="sub">合计 ${s.last7_total || 0} 条</span>
+        </div>
+        <div class="trend">${trend || '<div class="muted">暂无数据</div>'}</div>
       </div>
-      <div class="trend">${trend || '<div class="muted">暂无数据</div>'}</div>
+
+      <div class="panel panel-pad">
+        <div class="sec-head" style="margin-bottom:10px"><h2>索引与占用</h2></div>
+        <div class="kvgrid">
+          <div class="k">分段总数</div><div class="v">${s.chunks || 0} 段（含每篇元数据段）</div>
+          <div class="k">概念数</div><div class="v">${s.concepts || 0} 个</div>
+          <div class="k">词法矩阵</div><div class="v">${idx.sparse_rows || 0} × ${idx.sparse_cols || 0}，非零 ${idx.sparse_nnz || 0}</div>
+          <div class="k">占用</div><div class="v">库 ${bytes((s.size||{}).db)} · 原文 ${bytes((s.size||{}).raw)} · 配图 ${bytes((s.size||{}).media)}（合计 ${bytes((s.size||{}).total)}）</div>
+          <div class="k">入库失败记录</div><div class="v">${s.failed || 0} 条</div>
+        </div>
+      </div>
     </div>
 
     <div class="panel panel-pad">
-      <div class="sec-head" style="margin-bottom:10px"><h2>索引与占用</h2></div>
-      <div class="kvgrid">
-        <div class="k">分段总数</div><div class="v">${s.chunks || 0} 段（含每篇元数据段）</div>
-        <div class="k">概念数</div><div class="v">${s.concepts || 0} 个</div>
-        <div class="k">词法矩阵</div><div class="v">${idx.sparse_rows || 0} × ${idx.sparse_cols || 0}，非零 ${idx.sparse_nnz || 0}</div>
-        <div class="k">占用</div><div class="v">库 ${bytes((s.size||{}).db)} · 原文 ${bytes((s.size||{}).raw)} · 配图 ${bytes((s.size||{}).media)}（合计 ${bytes((s.size||{}).total)}）</div>
-        <div class="k">入库失败记录</div><div class="v">${s.failed || 0} 条</div>
+      <div class="sec-head" style="margin-bottom:6px">
+        <h2>最新入库</h2>
+        <span class="sub">最近 10 篇 · 点整行进详情</span>
       </div>
+      <div class="latest">${latestRows || '<div class="muted">暂无</div>'}</div>
     </div>`;
   $('#tabReview').hidden = !s.review_pending;
   if (s.review_pending) $('#tabReview').textContent = s.review_pending;
