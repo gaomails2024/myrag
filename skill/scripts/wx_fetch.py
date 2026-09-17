@@ -31,6 +31,7 @@ import html as html_mod
 import json
 import os
 import re
+import struct
 import sys
 import time
 import urllib.error
@@ -77,6 +78,13 @@ TRACK_PARAMS = ("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_con
 FILE_EXTS = (".pdf", ".zip", ".rar", ".7z", ".tar", ".gz", ".dmg", ".pkg", ".exe",
              ".apk", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".epub",
              ".mp3", ".mp4", ".mov", ".avi", ".mkv", ".wav", ".csv")
+
+# ---- 配图 L1 过滤（PRD §6.4）----
+# 微信文章里混着大量「无信息载体」：小图标、表情、分割线、引导关注图、动图。
+# 实测它们占全库体积的 96%，而没人会看。**在下图这一环就剔掉最省事** ——
+# 图已经进内存了，判断尺寸后再决定落不落盘，零额外成本（也不占磁盘）。
+MIN_IMG_SIDE = 100     # 宽或高小于此值 → 图标 / 表情
+MAX_IMG_RATIO = 8      # 长宽比超过此值 → 分割线 / 装饰长条
 
 # 真·验证页的特征词。
 # **不能只看 HTML 体积**：图片合辑等非文章页也可能很小，把它们当成「验证页」
@@ -188,6 +196,56 @@ def looks_like_verify(page) -> bool:
     否则用户会拿着错误的原因去排查。
     """
     return any(h in (page or "") for h in VERIFY_HINTS)
+
+
+def _img_size(data):
+    """从图片字节流读出 (宽, 高)。**零依赖** —— 只解析头部，不解码像素。
+
+    本脚本的硬约束是「零第三方依赖」，所以不能引入 PIL 之类。
+    但只判断尺寸的话，读头部几字节就够：
+      · PNG  —— IHDR 块固定在第 16–24 字节
+      · GIF  —— 逻辑屏幕描述符在第 6–10 字节
+      · JPEG —— 需要扫段找 SOF（尺寸在 SOF 段里）
+      · WEBP —— VP8X（无损/动画）与 VP8（有损）字段位置不同
+
+    读不出来返回 None —— **调用方遇 None 应当保留该图**，宁可多留也不要误删。
+    """
+    try:
+        if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
+            w, h = struct.unpack(">II", data[16:24])
+            return w, h
+        if data[:4] == b"GIF8":
+            w, h = struct.unpack("<HH", data[6:10])
+            return w, h
+        if data[:3] == b"\xff\xd8\xff":
+            i = 2
+            while i < len(data) - 9:
+                if data[i] != 0xFF:
+                    i += 1
+                    continue
+                mk = data[i + 1]
+                if mk in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                          0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):     # SOF 段
+                    h, w = struct.unpack(">HH", data[i + 5:i + 9])
+                    return w, h
+                if mk in (0xD8, 0x01) or 0xD0 <= mk <= 0xD7:        # 无长度字段
+                    i += 2
+                    continue
+                i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
+            return None
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            tag = data[12:16]
+            if tag == b"VP8X":
+                w = int.from_bytes(data[24:27], "little") + 1
+                h = int.from_bytes(data[27:30], "little") + 1
+                return w, h
+            if tag == b"VP8 ":
+                w = int.from_bytes(data[26:28], "little") & 0x3FFF
+                h = int.from_bytes(data[28:30], "little") & 0x3FFF
+                return w, h
+    except Exception:
+        return None
+    return None
 
 
 def _text_len(html_frag) -> int:
@@ -541,7 +599,10 @@ def fetch_one(url, stage_root, sleep_before):
     idir = os.path.join(sdir, "img")
     os.makedirs(idir, exist_ok=True)
 
-    img_rel = []
+    # 原始序号 → 落盘文件名。**不能用列表 append**：跳过的图会让后面全部错位 ——
+    # 第 2 张被跳过时，第 3 张会顶到 _repl(1) 的位置，正文引用到错的图。
+    slots = {}
+    dropped = []
     for i, iu in enumerate(img_urls, 1):
         try:
             st, data = http_get(iu, referer=REFERER, binary=True)
@@ -554,19 +615,42 @@ def fetch_one(url, stage_root, sleep_before):
                 ct_hdr = "gif"
             elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
                 ct_hdr = "webp"
+
+            # ---- L1 配图过滤（PRD §6.4）：无信息载体不落盘 ----
+            if ct_hdr == "gif":
+                dropped.append((i, "动图"))
+                continue
+            size = _img_size(data)
+            if size:                                     # None = 读不出尺寸，保留（不误删）
+                w, h = size
+                if min(w, h) < MIN_IMG_SIDE:
+                    dropped.append((i, "%dx%d 过小" % (w, h)))
+                    continue
+                if max(w, h) / max(1, min(w, h)) > MAX_IMG_RATIO:
+                    dropped.append((i, "%dx%d 长条" % (w, h)))
+                    continue
+
             name = "%02d.%s" % (i, ct_hdr)
             with open(os.path.join(idir, name), "wb") as f:
                 f.write(data)
-            img_rel.append("img/" + name)
+            slots[i] = name
         except Exception as e:
             log("   ! 配图 %d 下载失败: %s" % (i, e))
 
-    # 正文里把占位符换成实际落盘路径（未下成功的图删掉占位）
+    # 保序还原成列表：payload 的 images 与统计仍用原变量名，避免别处漏改
+    img_rel = ["img/" + slots[k] for k in sorted(slots)]
+    if dropped:
+        kinds = {}
+        for _, r in dropped:
+            t = "动图" if r == "动图" else ("尺寸过小" if "过小" in r else "长条")
+            kinds[t] = kinds.get(t, 0) + 1
+        log("    - 已过滤 %d 张无信息配图（%s）"
+            % (len(dropped), "、".join("%s %d 张" % (k, v) for k, v in kinds.items())))
+
+    # 正文里把占位符换成实际落盘路径；**被过滤 / 下载失败的图连占位一起删掉**
     def _repl(m):
-        k = int(m.group(1))
-        if k < len(img_rel):
-            return "![](img/%s)" % os.path.basename(img_rel[k])
-        return ""
+        nm = slots.get(int(m.group(1)) + 1)      # 占位符是 0-based，slots 是 1-based
+        return "![](img/%s)" % nm if nm else ""
 
     md = re.sub(r"\x00IMG(\d+)\x00", _repl, md)
     if title:

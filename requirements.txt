@@ -28,3 +28,8 @@ modelscope
 # ---- 检索评测（scripts/eval.py，PRD §8.5）----
 # 只被评测脚本使用，**不在后端运行时依赖里**
 pyyaml
+
+# ---- 配图 OCR（scripts/ocr_images.py，PRD §6.4）----
+# 走 macOS 系统 Vision：本地推理、内容不上传，约 0.4 秒/张。仅 macOS 可用
+pyobjc-framework-Vision
+pyobjc-framework-Quartz
