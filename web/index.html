@@ -163,6 +163,9 @@ main{padding:24px 20px; max-width:1180px; margin:0 auto}
    窄屏回退成单列 —— 索引那几行文字在 40% 宽度下会折行折得很难看。 */
 .dash2{display:grid; grid-template-columns:6fr 4fr; gap:14px; margin-top:16px}
 .dash2 .panel + .panel{margin-top:0}   /* 同行时不该再叠面板间的垂直间距 */
+/* 紧跟 .dash2 的那个面板**不满足** `.panel + .panel`（它的前一个兄弟是 .dash2，
+   不是 .panel），不补这条就会和上一行紧贴。 */
+.dash2 + .panel{margin-top:16px}
 @media (max-width:980px){ .dash2{grid-template-columns:1fr} }
 /* 最新入库：紧凑列表，一行一篇 */
 .latest .li{display:flex; align-items:center; gap:10px; padding:8px 2px;
@@ -967,7 +970,10 @@ async function renderOverview(){
           <div class="k">分段总数</div><div class="v">${s.chunks || 0} 段（含每篇元数据段）</div>
           <div class="k">概念数</div><div class="v">${s.concepts || 0} 个</div>
           <div class="k">词法矩阵</div><div class="v">${idx.sparse_rows || 0} × ${idx.sparse_cols || 0}，非零 ${idx.sparse_nnz || 0}</div>
-          <div class="k">占用</div><div class="v">库 ${bytes((s.size||{}).db)} · 原文 ${bytes((s.size||{}).raw)} · 配图 ${bytes((s.size||{}).media)}（合计 ${bytes((s.size||{}).total)}）</div>
+          <div class="k">占用合计</div><div class="v">${bytes((s.size||{}).total)}</div>
+          <div class="k">&nbsp;&nbsp;数据库</div><div class="v">${bytes((s.size||{}).db)}</div>
+          <div class="k">&nbsp;&nbsp;原文</div><div class="v">${bytes((s.size||{}).raw)}</div>
+          <div class="k">&nbsp;&nbsp;配图</div><div class="v">${bytes((s.size||{}).media)}</div>
           <div class="k">入库失败记录</div><div class="v">${s.failed || 0} 条</div>
         </div>
       </div>
