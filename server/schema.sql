@@ -101,6 +101,10 @@ CREATE TABLE IF NOT EXISTS categories (
   name       TEXT NOT NULL,          -- 显示名，如「开源项目」
   prefix     TEXT NOT NULL,          -- 编号前缀，如 A / T / I（全局唯一）
   criteria   TEXT DEFAULT '',        -- 划分标准：注入 Skill，Agent 据此判类
+  principles TEXT DEFAULT '',        -- 收录原则（使用者自己的偏好）：注入 Skill，
+                                     -- Agent 据此判断价值、定 verdict、决定核查侧重。
+                                     -- 与 criteria 的分工：criteria 答「这篇归哪类」，
+                                     -- principles 答「这篇值不值得、该怎么看」。
   retrieval  TEXT DEFAULT 'rag',     -- rag=切段向量化、进语义检索；
                                      -- fulltext=不建索引，省算力，按时间浏览 + 点开读全文
   features   TEXT DEFAULT '[]',      -- JSON array：repo_card（GitHub 核查）/ concepts（概念互链）

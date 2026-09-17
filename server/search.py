@@ -257,6 +257,7 @@ def search(conn, q, mode="hybrid", category=None, tag=None,
             # 无法预计算文档侧向量，所以只对头部候选过一遍，其余保持原序 ——
             # 排序的意义本来就在头部。
             n_rr = min(len(top), config.RERANK_TOP_N)
+            rr_map = {}                         # chunk_id → 精排相关度（0–1）
             if n_rr > 1:
                 head = top[:n_rr]
                 texts = []
@@ -266,9 +267,11 @@ def search(conn, q, mode="hybrid", category=None, tag=None,
                     texts.append("%s ｜ %s\n%s" % (row.get("title") or "",
                                                    row.get("heading_path") or "",
                                                    row.get("text") or ""))
-                order = rerank.rerank_docs(q, texts)
-                if order:                       # None = 不可用/失败 → 保留原顺序
+                res = rerank.rerank_docs(q, texts)
+                if res:                         # None = 不可用/失败 → 保留原顺序
+                    order, scores = res
                     top = [head[i] for i in order] + top[n_rr:]
+                    rr_map = {head[i][0]: scores[k] for k, i in enumerate(order)}
 
             hits = {}
             for cid, sc in top:
@@ -281,7 +284,12 @@ def search(conn, q, mode="hybrid", category=None, tag=None,
                     h = {"article_id": aid, "title": row["title"], "category": row["category"],
                          "source": row["source"], "published_at": row["published_at"],
                          "collected_at": row["collected_at"], "url": row["url"],
-                         "score": round(sc, 4), "match_type": "rag", "matched_chunks": []}
+                         # score = RRF 排名融合分（**只反映"两路排在哪"，不反映相关度**）
+                        # rerank_score = 0–1 的绝对相关度，未开精排时为 None。
+                        # 界面上判断「该不该提示没找到」要用后者，前者会误判。
+                        "score": round(sc, 4),
+                        "rerank_score": (round(rr_map[cid], 4) if cid in rr_map else None),
+                        "match_type": "rag", "matched_chunks": []}
                     hits[aid] = h
                 if len(h["matched_chunks"]) < 3:
                     rk = ranks.get(cid, {})

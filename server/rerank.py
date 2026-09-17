@@ -78,11 +78,17 @@ def _clip(text, n=None):
 
 
 def rerank_docs(query, docs, top_n=None):
-    """按与 query 的相关度给 docs 重排，返回**降序**的下标列表。
+    """按与 query 的相关度给 docs 重排，返回 `(降序下标列表, 对应分数)`。
 
     不可用（未启用 / 未加载 / 推理失败）时返回 None —— 调用方据此保留原顺序。
     **只对前 top_n 条打分**：cross-encoder 无法预计算，全量过一遍代价太高，
     而排序的意义本来就在头部。
+
+    **分数要一起返回**，不只是顺序：它是 0–1 的**绝对相关度**（normalize 后走
+    sigmoid），与 RRF 分完全不同 —— RRF 分只反映「两路排在什么位置」，
+    **不反映相关度**（实测：库里没有答案的 query 也能拿到 0.0275，
+    比有答案 query 的最低分 0.0152 还高）。所以只有这个分数才可能用来判断
+    「该不该告诉用户没找到」。
     """
     if not config.RERANK_ENABLED or not docs:
         return None
@@ -101,7 +107,7 @@ def rerank_docs(query, docs, top_n=None):
         if isinstance(scores, (int, float)):          # 单条时返回标量，统一成列表
             scores = [scores]
         order = sorted(range(n), key=lambda i: -float(scores[i]))
-        return order
+        return order, [float(scores[i]) for i in order]
     except Exception as e:                            # noqa: BLE001
         log.warning("rerank 推理失败，保留原顺序：%s", e)
         return None

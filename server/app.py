@@ -178,6 +178,7 @@ class CategoryCreateReq(BaseModel):
     name: str
     prefix: str
     criteria: str = ""
+    principles: str = ""
     retrieval: str = "rag"
     features: list[str] = Field(default_factory=list)
     is_default: int = 0
@@ -189,6 +190,7 @@ class CategoryPatchReq(BaseModel):
     name: str | None = None
     prefix: str | None = None
     criteria: str | None = None
+    principles: str | None = None
     retrieval: str | None = None
     features: list[str] | None = None
     is_default: int | None = None
@@ -257,12 +259,12 @@ def api_category_create(req: CategoryCreateReq):
             conn.execute("UPDATE categories SET is_default = 0")
         conn.execute(
             """INSERT INTO categories
-               (key, name, prefix, criteria, retrieval, features, is_default, sort_order,
-                display, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-            (key, name, prefix, req.criteria or "", req.retrieval,
-             db.jdumps(req.features or []), is_default, int(req.sort_order or 0),
-             req.display or "", now, now))
+               (key, name, prefix, criteria, principles, retrieval, features,
+                is_default, sort_order, display, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (key, name, prefix, req.criteria or "", req.principles or "",
+             req.retrieval, db.jdumps(req.features or []), is_default,
+             int(req.sort_order or 0), req.display or "", now, now))
         db.log_ingest(conn, None, None, "category_add",
                       {"key": key, "name": name, "prefix": prefix,
                        "retrieval": req.retrieval, "features": req.features})

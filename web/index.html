@@ -1336,6 +1336,11 @@ async function renderSettings(){
         </div>
         <div class="field"><label>划分标准（写给人看，也给 Agent 判类看）</label>
           <textarea class="ta" style="min-height:96px" data-f="criteria">${esc(c.criteria || '')}</textarea></div>
+        <div class="field"><label>收录原则（你判断「值不值得」的标准，注入 Agent）</label>
+          <textarea class="ta" style="min-height:120px" data-f="principles"
+            placeholder="例：「值得试」= 有正式 release + 三个月内有提交 + 能自托管跑起来；缺一项即「观望」">${esc(c.principles || '')}</textarea>
+          <div class="muted" style="font-size:12.5px;margin-top:5px">
+            划分标准决定<b>归哪类</b>，原则决定<b>怎么看</b> —— Agent 据此判断价值、定结论、决定核查侧重</div></div>
         <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
           <button class="btn primary" data-act="save-cat" data-cat="${attr(c.key)}">保存</button>
           <span class="muted" style="font-size:12.5px">改前缀不动已有编号；改检索方式只影响之后入库的文章</span>
@@ -1389,6 +1394,8 @@ async function renderSettings(){
           </select></div>
         <div class="field"><label>划分标准</label>
           <textarea class="ta" id="ncCriteria" style="min-height:80px" placeholder="什么样的内容该归到这一类"></textarea></div>
+        <div class="field"><label>收录原则（可选）</label>
+          <textarea class="ta" id="ncPrinciples" style="min-height:100px" placeholder="我看重什么、什么算值得试、核查时优先回答什么"></textarea></div>
         <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
           <button class="btn primary" data-act="add-cat">新增</button>
           <span class="muted" style="font-size:12.5px">新增的分类会立刻出现在页签里</span>
@@ -1461,13 +1468,14 @@ async function saveCategory(key){
   const retrieval = row.querySelector('[data-f="retrieval"]').value;
   const display = row.querySelector('[data-f="display"]').value;
   const criteria = row.querySelector('[data-f="criteria"]').value;
+  const principles = row.querySelector('[data-f="principles"]').value;
   const sort_order = parseInt(row.querySelector('[data-f="sort_order"]').value || '0', 10) || 0;
   const features = $$('[data-f="feature"]', row).filter(x => x.checked).map(x => x.value);
   const def = row.querySelector('[data-act="set-default"]');
 
   try {
     await apiJson('/api/categories/' + encodeURIComponent(key), 'PATCH', {
-      name, prefix, retrieval, display, criteria, features, sort_order,
+      name, prefix, retrieval, display, criteria, principles, features, sort_order,
       is_default: (def && def.checked) ? 1 : 0,
     });
     toast('已保存「' + name + '」');
@@ -1503,6 +1511,7 @@ async function addCategory(){
       retrieval: $('#ncRetrieval').value,
       display: $('#ncDisplay').value,
       criteria: $('#ncCriteria').value,
+      principles: $('#ncPrinciples').value,
       sort_order: state.cats.length + 1,
     });
     toast('已新增「' + name + '」');

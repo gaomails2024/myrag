@@ -86,6 +86,8 @@ def _migrate(conn) -> None:
         return
     if cols and "display" not in cols:
         conn.execute("ALTER TABLE categories ADD COLUMN display TEXT DEFAULT ''")
+    if cols and "principles" not in cols:
+        conn.execute("ALTER TABLE categories ADD COLUMN principles TEXT DEFAULT ''")
 
 
 # ---------------------------------------------------------------- 通用助手
@@ -145,11 +147,12 @@ def seed_categories(conn) -> int:
     for c in config.DEFAULT_CATEGORIES:
         conn.execute(
             """INSERT INTO categories
-               (key, name, prefix, criteria, retrieval, features, is_default, sort_order,
-                created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+               (key, name, prefix, criteria, principles, retrieval, features,
+                is_default, sort_order, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (c["key"], c["name"], c["prefix"], c.get("criteria", ""),
-             c.get("retrieval", "rag"), jdumps(c.get("features") or []),
+             c.get("principles", ""), c.get("retrieval", "rag"),
+             jdumps(c.get("features") or []),
              int(c.get("is_default", 0)), int(c.get("sort_order", 0)), now, now))
     return len(config.DEFAULT_CATEGORIES)
 
