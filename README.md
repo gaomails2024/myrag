@@ -25,8 +25,8 @@ WorkBuddy（Agent）+ MyRag Skill          ← 入口与调度都在这
 
 **入口在微信，不在浏览器。** 所以你**必须先有一个能接收微信转发的 Agent 客户端**
 （当前是 WorkBuddy，微信（4.1.13以上）分享面板里能直接选到）。这是产品形态，不是安装细节——没有它就没有入口。
-<img width="1648" height="1524" alt="image" src="https://github.com/user-attachments/assets/bff9ab8e-fbc2-4ab3-a322-db31711ff9b1" />
-<img width="2852" height="1486" alt="image" src="https://github.com/user-attachments/assets/1d7f48d5-b0d5-4af5-b588-3afb565ae2cf" />
+
+<img width="75%" alt="image" src="https://github.com/user-attachments/assets/1d7f48d5-b0d5-4af5-b588-3afb565ae2cf" />
 
 ### 它不是什么
 
