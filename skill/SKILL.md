@@ -87,7 +87,7 @@ python3 ~/.workbuddy/skills/MyRag/scripts/wx_fetch.py \
 ```
 POST http://127.0.0.1:8765/api/check-urls
 { "url_canons": ["https://mp.weixin.qq.com/s/...", "..."] }
-→ { "dups": [ { "url_canon": "...", "id": "T-20260827-01" } ] }
+→ { "dups": [ { "url_canon": "...", "id": "T-20260101-01" } ] }
 ```
 
 命中 `dups` 的直接记 `skip_dup`（附上后端给的已有 `id`），**不抓取**。剩余链接进入第 2 步。
@@ -163,8 +163,8 @@ python3 ~/.workbuddy/skills/MyRag/scripts/wx_fetch.py \
 [
   { "idx": 1, "url": "https://mp.weixin.qq.com/s/...", "ok": true,
     "kind": "wechat",
-    "title": "Agent Harness驾驭框架完整指南（附代码实现）",
-    "source": "算子之心", "author": "...",
+    "title": "某篇示例文章",
+    "source": "示例公众号", "author": "...",
     "published_at": "2026-09-10T18:05:00+08:00",
     "chars": 10216, "images": 3, "embedded": [],
     "token": "a1b2c3", "fail_reason": null }
@@ -282,7 +282,7 @@ POST http://127.0.0.1:8765/api/ingest
   "review_flag": 0,
   "concepts": [ { "name": "...", "definition": "...", "related": ["..."] } ]
 }
-→ { "ok": true, "dup": false, "id": "T-20260827-01" }
+→ { "ok": true, "dup": false, "id": "T-20260101-01" }
 ```
 
 - **请求体里没有 `id`，`id` 只出现在响应里。** 后端按该分类配置的 `prefix` 定前缀、定日期（取 `published_at` 的发布日，不是今天）、取下一个序号。
@@ -306,9 +306,9 @@ POST http://127.0.0.1:8765/api/ingest
 ```
 入库 3 条 ｜ 跳过 1 条 ｜ 失败 1 条
 
-A-20260911-01  Utopia              开源项目  观察（v0.1 / 无 release / 蹭 world model 词）
-T-20260827-01  个人 AI 记忆系统      底层技术  5 个概念，已互链
-I-20260903-01  吴恩达访谈            理念思考  —
+A-20260101-01  示例项目 A              开源项目  观察（v0.1 / 无 release / 蹭 world model 词）
+T-20260101-01  示例文章 B      底层技术  5 个概念，已互链
+I-20260101-01  示例文章 C            理念思考  —
 
 跳过：https://... （已存在）
 失败：https://... （verify_page 环境异常验证页）
@@ -365,5 +365,5 @@ open "http://127.0.0.1:8765/"      # macOS；Linux 用 xdg-open，Windows 用 st
 | 带 repo_card 能力的分类只写文章里宣称的 star 数 | 自媒体常夸大，必须查仓库实况 |
 | 配图不管 | 公众号删文后图就没了 |
 | 判类犹豫时随口选一个 | 应按 `criteria` 判给最接近的一类 + 标 `review_flag`；**只有全都对不上时**才落 `is_default` 类 |
-| 自己拼 `id = T-20260827-01` 提交 | `NN` 要查库才算得准，你编必然撞号；后端分配，你只读响应里的 `id` |
+| 自己拼 `id = T-20260101-01` 提交 | `NN` 要查库才算得准，你编必然撞号；后端分配，你只读响应里的 `id` |
 | 把 `dup=true` 当失败重试 | 那是"已存在"的正常结果，重试只会再拿一次 `dup` |

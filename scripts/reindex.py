@@ -8,7 +8,7 @@
 
 用法（在项目根下执行）：
     .venv/bin/python scripts/reindex.py                    # 全部文章
-    .venv/bin/python scripts/reindex.py T-20260827-01 ...  # 指定若干篇
+    .venv/bin/python scripts/reindex.py T-20260101-01 ...  # 指定若干篇
 """
 
 import sys

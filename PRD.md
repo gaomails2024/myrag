@@ -369,7 +369,7 @@ Agent 入库时现读。开源分发后每个人的分类与判据都不同，�
 | 正文容器 | `#js_content` | 三级正则回退 |
 | 标题 | `<meta property="og:title">`，回退 `var msg_title` | 实测两者一致 |
 | **公众号** | **`id="js_name"` 标签内文本**，回退 `data-nickname="..."` 属性 | ⚠️ **没有 `var nickname` 这个变量**，按变量名提取会得到空值（实测踩过） |
-| 作者 | `<meta property="og:article:author">` | ⚠️ 可能是截断名（实测 `开源AI项目落地` 被截成 `开源AI`），**公众号名一律以 `js_name` 为准** |
+| 作者 | `<meta property="og:article:author">` | ⚠️ 可能是截断名（实测某公众号名被截成前半段），**公众号名一律以 `js_name` 为准** |
 | 发布时间 | `var ct`（秒级时间戳） | 实测可正确换算出发布日 |
 | 配图属性 | `data-src`（不是 `src`） | 只扫 `#js_content` 内部 |
 | **内嵌视频 / 卡片** | `<iframe class="video_iframe">` 与 `<mp-*>` 标签 | **不下载，但必须留痕**：视频转成正文里一行 `> [视频] <链接>`，卡片类型记入 `payload.embedded`。排版辅助标签（`mp-style-type`、`mp-common-profile`）忽略 |
@@ -541,10 +541,10 @@ score(chunk) = Σ_over_lists  1 / (k + rank_in_list)      k = 60
   "total": 12,
   "hits": [
     {
-      "article_id": "T-20260827-01",
+      "article_id": "T-20260101-01",
       "title": "...",
       "category": "tech",
-      "source": "腾讯云开发者",
+      "source": "示例公众号",
       "published_at": "2026-08-27",
       "url": "https://mp.weixin.qq.com/s/...",
       "score": 0.0312,
@@ -591,7 +591,7 @@ Base：`http://127.0.0.1:8765`，全部 JSON。
 { "url_canons": ["https://mp.weixin.qq.com/s?__biz=..&mid=..&idx=..&sn=..", "..."] }
 
 // 响应
-{ "dups": [ { "url_canon": "https://mp.weixin.qq.com/s?...", "id": "T-20260827-01" } ] }
+{ "dups": [ { "url_canon": "https://mp.weixin.qq.com/s?...", "id": "T-20260101-01" } ] }
 ```
 
 - **必须传 `url_canon`**：原始分享链接带 `mpshare`/`scene`/`srcid`/`#rd` 等追踪参数，同一篇文章两次转发字符串不同，直接比会漏。
@@ -604,7 +604,7 @@ Base：`http://127.0.0.1:8765`，全部 JSON。
   "stage_token": "a1b2c3",
   "category": "tech",
   "title": "个人 AI 记忆系统设计",
-  "source": "腾讯云开发者",
+  "source": "示例公众号",
   "author": "左德军",
   "published_at": "2026-08-27T10:00:00+08:00",
   "url": "https://mp.weixin.qq.com/s/...",
@@ -621,7 +621,7 @@ Base：`http://127.0.0.1:8765`，全部 JSON。
 **`POST /api/ingest` 响应**：
 
 ```json
-{ "ok": true, "dup": false, "id": "T-20260827-01", "fail_reason": null }
+{ "ok": true, "dup": false, "id": "T-20260101-01", "fail_reason": null }
 ```
 
 - **请求体里没有 `id`**。编号由后端分配（§5.3）——`NN` 必须查库才算得准，Skill 侧生成必然撞号。后端按 `category` 定前缀、按 `published_at` 定日期，在响应里返回 `id`。
@@ -802,9 +802,9 @@ markdown-it-py    # Markdown 渲染（或前端渲染）
 │   │       └── img/NN.png
 │   ├── raw/
 │   │   └── 2026/
-│   │       └── A-20260911-01.md
+│   │       └── A-20260101-01.md
 │   └── media/
-│       └── A-20260911-01/
+│       └── A-20260101-01/
 │           └── 01.png
 ├── web/
 │   └── index.html
