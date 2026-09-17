@@ -705,6 +705,16 @@ def api_stats():
             (db.now_iso(),)).fetchone()["c"]
         chunks = conn.execute("SELECT COUNT(*) c FROM chunks").fetchone()["c"]
         concepts = conn.execute("SELECT COUNT(*) c FROM concepts").fetchone()["c"]
+        # ⚠️ 这个数字**恒为 0**，别拿它当失败监控（工作台已不再展示，v2.1）：
+        # 它数的是 articles 表里 status='failed' 的行，但**入库失败的文章根本进不了这张表**
+        # —— 失败发生在写入之前。所以它从设计上就不是一个有效指标。
+        #
+        # 真实失败信息在别处，都不在这里：
+        #   · 抓取阶段失败 → Skill 侧，带 fail_reason（verify_page / unsupported_file…），
+        #     随 Agent 的结果清单报给用户，**不落库**
+        #   · 入库接口失败 → 目前只在 HTTP 响应里，也没写 ingest_log
+        # 若将来要做"失败可追溯"，正确做法是让上面两处都写进 ingest_log，
+        # 而不是继续数这张表。
         failed = conn.execute(
             "SELECT COUNT(*) c FROM articles WHERE status = 'failed'").fetchone()["c"]
 
