@@ -99,15 +99,19 @@ else
 fi
 ok "Skill 文件已就位"
 
-"$PY_BIN" - "$SKILL_DST/SKILL.md" "$ROOT" <<'PY'
+"$PY_BIN" - "$SKILL_DST/SKILL.md" "$ROOT" "$SKILL_DST" <<'PY'
 import pathlib, sys
-path, home = pathlib.Path(sys.argv[1]), sys.argv[2]
+path, home, skill_dir = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 text = path.read_text(encoding="utf-8")
-if "{{MYRAG_HOME}}" not in text:
+if "{{MYRAG_HOME}}" not in text and "{{SKILL_DIR}}" not in text:
     print("   [ !] 没找到占位符（可能已替换过），跳过")
     raise SystemExit(0)
-path.write_text(text.replace("{{MYRAG_HOME}}", home), encoding="utf-8")
-print("   [ok] 已把项目路径写入 SKILL.md：%s" % home)
+# 两个占位符都要替换：
+#   {{MYRAG_HOME}} = 使用者 clone 下来的系统根（SKILL.md 里的 --stage-root 等要用）
+#   {{SKILL_DIR}}  = 本 Skill 的安装目录（--skill-dir 可改，不能写死）
+text = text.replace("{{MYRAG_HOME}}", home).replace("{{SKILL_DIR}}", skill_dir)
+path.write_text(text, encoding="utf-8")
+print("   [ok] 已写入 SKILL.md：系统根=%s｜Skill 目录=%s" % (home, skill_dir))
 PY
 [ $? -eq 0 ] || die "占位符替换失败"
 

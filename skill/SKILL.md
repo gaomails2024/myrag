@@ -35,11 +35,11 @@ updated: 2026-09-14
 
 ```
 系统根目录  {{MYRAG_HOME}}/
-抓取脚本    ~/.workbuddy/skills/MyRag/scripts/wx_fetch.py
+抓取脚本    {{SKILL_DIR}}/scripts/wx_fetch.py
 stage 目录  {{MYRAG_HOME}}/data/_stage/
 系统文档    {{MYRAG_HOME}}/PRD.md
 
-注：Skill 包装在 Agent 客户端的 skills 目录（WorkBuddy 即 ~/.workbuddy/skills/MyRag/），
+注：Skill 包装在 Agent 客户端的 skills 目录（本机为 {{SKILL_DIR}}），
 系统根由安装时写入，两者不在同一目录——**路径一律以上面两条为准，不要自己拼相对路径。**
 
 注：若上面两条路径指向的目录在本机并不存在，说明这个 Skill 不是用安装脚本装的
@@ -89,7 +89,7 @@ curl -s --max-time 3 http://127.0.0.1:8765/api/health
 微信分享链接带 `mpshare` / `scene` / `srcid` / `#rd` 等追踪参数，同一篇文章两次转发的 URL 字符串不同。**先去追踪参数，再比对**：
 
 ```bash
-python3 ~/.workbuddy/skills/MyRag/scripts/wx_fetch.py \
+python3 {{SKILL_DIR}}/scripts/wx_fetch.py \
   --urls-file /tmp/myrag_urls.txt --canon-only
 ```
 
@@ -173,7 +173,7 @@ PYTHONPATH= ~/.workbuddy/binaries/python/envs/video-transcript/bin/python \
 把待抓链接写进一个临时文件（一行一条），然后：
 
 ```bash
-python3 ~/.workbuddy/skills/MyRag/scripts/wx_fetch.py \
+python3 {{SKILL_DIR}}/scripts/wx_fetch.py \
   --urls-file /tmp/myrag_urls.txt \
   --stage-root "{{MYRAG_HOME}}/data/_stage"
 ```

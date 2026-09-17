@@ -603,7 +603,7 @@ Base：`http://127.0.0.1:8765`，全部 JSON。
 {
   "stage_token": "a1b2c3",
   "category": "tech",
-  "title": "个人 AI 记忆系统设计",
+  "title": "示例文章 B设计",
   "source": "示例公众号",
   "author": "左德军",
   "published_at": "2026-08-27T10:00:00+08:00",
@@ -822,7 +822,22 @@ markdown-it-py    # Markdown 渲染（或前端渲染）
 
 **抓取脚本位置的说明**：脚本放在 Skill 包内（而非系统目录），是为了让「抓取」这件事的归属在文件系统上也一目了然；它唯一的外部副作用是往系统 `data/_stage/` 写 staging 目录，不触碰正式存储。
 
-**注意两处根目录不同**：Skill 包在 `~/.workbuddy/skills/MyRag/`，系统根在 `~/Documents/MyRag/`。脚本的 `DEFAULT_STAGE_ROOT` 与 SKILL.md 的路径常量**都写绝对路径指向系统根**——这里不能用相对路径推导（`../` 推不出正确结果）。改系统根位置时，这三处必须同时改：PRD §12.2、SKILL.md 路径常量、`wx_fetch.py` 的 `DEFAULT_STAGE_ROOT`。
+**两处根目录不同**：Skill 包放在 Agent 客户端的 skills 目录（默认 `~/.workbuddy/skills/MyRag/`，
+可用 `install.sh --skill-dir` 改），系统根是使用者 clone 下来的目录（默认 `~/MyRag`）。
+
+**路径不写死，靠占位符 + 环境变量解析**（v1.7 起）：
+
+- `SKILL.md` 模板里有两个占位符：`{{MYRAG_HOME}}`（系统根）与 `{{SKILL_DIR}}`（Skill 自身安装目录），
+  由 `install.sh` 部署时替换成真实绝对路径；
+- `wx_fetch.py` 的 `DEFAULT_STAGE_ROOT` 依次探测 `MYRAG_STAGE_DIR` → `MYRAG_HOME/data/_stage`
+  → `~/MyRag/data/_stage`；
+- **不能用相对路径推导**：Skill 包与系统根是两个互不相干的目录，`../` 推不出正确结果。
+
+**改系统根位置时要动什么**：PRD §12.2、`.env`（或 `MYRAG_HOME` 环境变量），然后重跑一次 `install.sh`。
+`SKILL.md` 与脚本本身**不需要改** —— 占位符与环境变量会跟着走。
+
+⚠️ 本文档在 v1.7 之前写的是「SKILL.md 路径常量与 `DEFAULT_STAGE_ROOT` 都写绝对路径」，
+那是**旧实现的描述，已过时**（用户实测指出，2026-09-17 更正）。
 
 ---
 
@@ -832,7 +847,7 @@ markdown-it-py    # Markdown 渲染（或前端渲染）
 |---|---|---|
 | 1 | 贴一条微信链接，60 秒内完成入库并可在工作台查到 | 实跑 3 条 |
 | 2 | 语义搜索「怎么防止 Agent 乱改文件」能命中讲沙箱/权限/写前快照的文章（原文无此措辞） | 实跑，检查命中 |
-| 3 | 词法（sparse）搜索「Utopia」「Apache-2.0」能精确命中 | 实跑 |
+| 3 | 词法（sparse）搜索「示例项目 A」「Apache-2.0」能精确命中 | 实跑 |
 | 4 | 带 `repo_card` 能力的分类，详情页可一键核查 GitHub，展示 star / license / 最近提交 / 创建日期 | 实跑 |
 | 5 | 各分类视图均可分类浏览；**点整行进详情**（不再按分类区别对待），详情内可跳原文 | 人工检查 |
 | 6 | 配图已本地化：断网后详情页图片仍显示 | 断网验证 |

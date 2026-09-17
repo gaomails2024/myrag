@@ -741,8 +741,8 @@ async function loadHealth(){
     $('#offline').innerHTML =
       `<div class="banner">
         <svg class="ico" viewBox="0 0 24 24"><path d="M12 3.5 21 19H3z"/><path d="M12 9.5v4M12 16.2v.3"/></svg>
-        <div><b>连不上本地后端</b>（${esc(API_BASE)}）。先在终端执行：
-        <code>~/Documents/MyRag/scripts/start.sh</code>，再刷新本页。</div>
+        <div><b>连不上本地后端</b>（${esc(location.origin)}）。请在<b>项目根目录</b>执行：
+        <code>bash scripts/start.sh</code>，然后刷新本页。</div>
       </div>`;
     $('#topStats').innerHTML = `<span class="chip"><span class="dot off"></span>后端离线</span>`;
   }
