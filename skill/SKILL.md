@@ -36,8 +36,15 @@ updated: 2026-09-14
 ```
 系统根目录  {{MYRAG_HOME}}/
 抓取脚本    {{SKILL_DIR}}/scripts/wx_fetch.py
+venv 解释器 {{MYRAG_HOME}}/.venv/bin/python
 stage 目录  {{MYRAG_HOME}}/data/_stage/
 系统文档    {{MYRAG_HOME}}/PRD.md
+
+**解释器约定（踩过坑）**：
+  · `{{SKILL_DIR}}/scripts/wx_fetch.py` —— **零依赖**，系统 `python3` 直接跑即可；
+  · `{{MYRAG_HOME}}/scripts/` 下的脚本（ocr_images / reindex / eval / fetch_rerank…）——
+    **依赖都装在 `{{MYRAG_HOME}}/.venv` 里，必须用 `.venv/bin/python` 跑**。
+    用系统 `python3` 会报「缺少 pyobjc / yaml / FlagEmbedding」之类，不是脚本坏了。
 
 注：Skill 包装在 Agent 客户端的 skills 目录（本机为 {{SKILL_DIR}}），
 系统根由安装时写入，两者不在同一目录——**路径一律以上面两条为准，不要自己拼相对路径。**
@@ -256,8 +263,13 @@ python3 {{SKILL_DIR}}/scripts/wx_fetch.py \
 | **L2 OCR 判定** | **这一步你要跑** | 对留下的图 OCR：文字 ≥10 字 → 保留并把文字写进正文；<10 字 → 删图 + 去引用 |
 
 ```bash
-python3 {{MYRAG_HOME}}/scripts/ocr_images.py --stage <token>
+{{MYRAG_HOME}}/.venv/bin/python {{MYRAG_HOME}}/scripts/ocr_images.py --stage <token>
 ```
+
+> ⚠️ **必须用 `.venv/bin/python`，不能用系统 `python3`。**
+> OCR 依赖（pyobjc）装在 `{{MYRAG_HOME}}/.venv` 里，系统 python 找不到，会报「缺少 pyobjc」。
+> **凡是 `{{MYRAG_HOME}}/scripts/` 下的脚本都要这样跑** —— 那里面的脚本依赖 venv。
+> 唯一的例外是本 Skill 自带的 `wx_fetch.py`：它**零依赖**，用系统 `python3` 就行。
 
 它做三件事：
 
