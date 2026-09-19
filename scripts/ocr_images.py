@@ -200,16 +200,30 @@ def process_stage(token, min_chars, dry_run):
                     "", md, flags=re.M)
 
     if not dry_run:
-        md_path.write_text(md, encoding="utf-8")
+        # ★ payload.json 是**唯一来源**，content.md 由它派生 —— 顺序不能反。
+        #
+        # 为什么要一起写：正文在 stage 里存了两份副本，
+        #   · `payload["content_md"]` —— **ingest.py 只读这个**（server/ingest.py:613）
+        #   · `content.md`           —— Agent 判类时读这个（SKILL.md 第 3 步）
+        # 两个副本一旦分叉，就会像 2026-09-19 那次：OCR 文字写进了 content.md，
+        # 入库却拿了 payload 里的旧正文，图内文字整批丢掉（7 条受影响）。
+        # 所以：**先改 payload，成功后再写 content.md** —— payload 写失败就整个中止，
+        # 绝不让两份内容不一致地落盘。
         if pay_path.exists():
             try:
                 pay = json.loads(pay_path.read_text(encoding="utf-8"))
                 keep = set(kept)
                 pay["images"] = [x for x in (pay.get("images") or [])
                                  if pathlib.Path(x).name in keep]
+                pay["content_md"] = md
                 pay_path.write_text(json.dumps(pay, ensure_ascii=False), encoding="utf-8")
+                # 落盘后立刻回读校验，防的是"写一半/编码问题"这类静默损坏
+                if json.loads(pay_path.read_text(encoding="utf-8")).get("content_md") != md:
+                    return {"id": token,
+                            "err": "payload 回读校验不一致，已中止（避免图内文字被丢弃）"}
             except Exception as e:
                 return {"id": token, "err": "payload.json 同步失败：%s" % e}
+        md_path.write_text(md, encoding="utf-8")
 
     return {"id": token, "imgs": len(imgs), "kept": len(kept), "skipped": len(dropped),
             "chars": chars, "injected": len(kept), "sec": time.perf_counter() - t0,
