@@ -33,3 +33,8 @@ pyyaml
 # 走 macOS 系统 Vision：本地推理、内容不上传，约 0.4 秒/张。仅 macOS 可用
 pyobjc-framework-Vision
 pyobjc-framework-Quartz
+
+# ---- JS 渲染抓取（scripts/render_fetch.py）----
+# 非微信链接里的 SPA 页面（wx_fetch 报 need_render）用它渲染后取正文。
+# 装完还要下浏览器引擎（一次性，约 180MB）：.venv/bin/python -m playwright install chromium
+playwright

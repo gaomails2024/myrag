@@ -192,10 +192,33 @@ def is_file_url(url) -> bool:
 def looks_like_verify(page) -> bool:
     """是否真是「环境异常 / 需要验证」页。
 
-    只看 HTML 体积是不够的（图片合辑之类的非文章页同样很小），必须看特征词，
-    否则用户会拿着错误的原因去排查。
+    两个坑都踩过，所以判定要小心：
+      · **不能只看 HTML 体积** —— 图片合辑之类的非文章页同样很小；
+      · **不能裸匹配全文** —— 站点自己的错误处理脚本里常含「环境异常」这类词。
+        实测 skillhub.cn 的页面里有 `window.alert('检测到浏览器环境异常…')`，
+        裸匹配会把正常页面误判成验证页，让用户往反爬方向白折腾。
+
+    所以先剥掉 `<script>` / `<style>`，只在**可见内容**里找特征词。
     """
-    return any(h in (page or "") for h in VERIFY_HINTS)
+    s = re.sub(r"<(script|style)\b.*?</\1>", " ", page or "", flags=re.S | re.I)
+    return any(h in s for h in VERIFY_HINTS)
+
+
+def looks_like_spa(page) -> bool:
+    """是否是需要 JS 才能出内容的单页应用（SPA）。
+
+    特征：HTML 有壳、带 `<script>`，但**可见文字极少**。
+
+    识别它的意义在于给准确的下一步：这类页面**既不是反爬、也不是页面坏了**，
+    而是内容由 JS 异步渲染，静态抓取必然拿不到。报「解析失败」会让人以为是
+    结构特殊或需要登录；报「验证页」更会把人带偏。所以单列一个 `need_render`。
+    """
+    if not page or "<script" not in page.lower():
+        return False
+    s = re.sub(r"<(script|style)\b.*?</\1>", " ", page, flags=re.S | re.I)
+    s = re.sub(r"<[^>]+>", " ", s)
+    txt = html_mod.unescape(s)
+    return len(re.sub(r"\s+", "", txt)) < 200
 
 
 def _img_size(data):
@@ -558,7 +581,15 @@ def fetch_one(url, stage_root, sleep_before):
     if body_len < MIN_BODY_CHARS:
         if looks_like_verify(page):
             out["fail_reason"] = "verify_page"
-            out["detail"] = "微信返回了验证/异常页，稍后重试或换网络"
+            out["detail"] = ("%s返回了验证/异常页，稍后重试或换网络（不是链接错了）"
+                             % ("微信" if is_wx else "站点"))
+        elif not is_wx and looks_like_spa(page):
+            # 非微信 + 有壳无内容 = JS 渲染页面。**不是反爬、不是页面坏了**，
+            # 静态抓取天生拿不到，得换渲染方式。
+            out["fail_reason"] = "need_render"
+            out["detail"] = ("页面是 JS 渲染的（HTML 里只有外壳、正文为空），"
+                             "静态抓取拿不到内容。需用浏览器渲染后重取，"
+                             "见 SKILL.md「JS 渲染页面（need_render）」")
         elif is_wx:
             out["fail_reason"] = "not_article"
             out["detail"] = ("微信域名但不是文章页，也没认出图片合辑；"
