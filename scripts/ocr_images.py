@@ -97,24 +97,51 @@ def merge_duplicates(lines):
     return out
 
 
+def _inject_after_img_line(md, name, block):
+    """把 `block` 插到「引用了 name 的那一行」之后。返回 (新文本, 是否插入了)。
+
+    **不能要求整行都是图片语法**：微信常把配图套在链接里做「点击跳转」，
+    写作 `[![](../../media/<id>/x.jpg)](https://...)` —— 行首是 `[`、行尾是 `)`，
+    两边都不满足"整行匹配"。早期实现因此把这类图**整批跳过**
+    （实测 I-20260918-06 的 20.jpg 就是这么漏的），而微信文章里这种写法很常见。
+    所以：先找图片语法的位置，再定位到它所在行的**行尾**插入。
+    """
+    m = re.search(r"!\[[^\]]*\]\([^)]*/%s\)" % re.escape(name), md)
+    if not m:
+        return md, False
+    line_end = md.find("\n", m.end())
+    if line_end < 0:
+        line_end = len(md)
+    # 幂等：该行后面紧跟着标记就不重复插
+    if md[line_end:line_end + 40].find(MARK) >= 0:
+        return md, False
+    return md[:line_end] + block + md[line_end:], True
+
+
+def _drop_img_line(md, name):
+    """删掉引用了 name 的整行（无信息配图用它，免得入库后是破图）。"""
+    m = re.search(r"!\[[^\]]*\]\([^)]*/%s\)" % re.escape(name), md)
+    if not m:
+        return md
+    line_start = md.rfind("\n", 0, m.start()) + 1
+    line_end = md.find("\n", m.end())
+    if line_end < 0:
+        line_end = len(md)
+    else:
+        line_end += 1
+    return md[:line_start] + md[line_end:]
+
+
 def inject(raw_text, article_id, texts):
     """把 {文件名: 文字} 插到正文中对应的图片引用行后面。"""
     added = 0
     for name, lines in texts.items():
         if not lines:
             continue
-        body = "\n".join("> " + s for s in lines)
-        block = "\n\n> %s：\n%s" % (MARK, body)
-        # 匹配 `![](../../media/<id>/<name>)`（允许前后空白）
-        pat = re.compile(r"(^[ \t]*!\[[^\]]*\]\([^)]*/%s\)[ \t]*$)" % re.escape(name),
-                         re.M)
-        m = pat.search(raw_text)
-        if not m:
-            continue
-        if MARK in raw_text[m.end():m.end() + 40]:      # 紧后面已有标记 → 幂等跳过
-            continue
-        raw_text = raw_text[:m.end()] + block + raw_text[m.end():]
-        added += 1
+        block = "\n\n> %s：\n%s" % (MARK, "\n".join("> " + s for s in lines))
+        raw_text, ok = _inject_after_img_line(raw_text, name, block)
+        if ok:
+            added += 1
     return raw_text, added
 
 
@@ -187,17 +214,13 @@ def process_stage(token, min_chars, dry_run):
         kept.append(p.name)
         chars += n
         block = "\n\n> %s：\n%s" % (MARK, "\n".join("> " + s for s in lines))
-        pat = re.compile(r"(^[ \t]*!\[[^\]]*\]\([^)]*/%s\)[ \t]*$)" % re.escape(p.name), re.M)
-        m = pat.search(md)
-        if m and MARK not in md[m.end():m.end() + 40]:
-            md = md[:m.end()] + block + md[m.end():]
+        md, _ = _inject_after_img_line(md, p.name, block)
 
     # 无信息载体：删文件 + 去掉正文里那一行引用（否则入库后是破图）
     for nm in dropped:
         if not dry_run:
             (img_dir / nm).unlink(missing_ok=True)
-        md = re.sub(r"^[ \t]*!\[[^\]]*\]\([^)]*/%s\)[ \t]*\n?" % re.escape(nm),
-                    "", md, flags=re.M)
+        md = _drop_img_line(md, nm)
 
     if not dry_run:
         # ★ payload.json 是**唯一来源**，content.md 由它派生 —— 顺序不能反。
