@@ -113,6 +113,21 @@ def _dense_topk(conn, vec, k, allowed):
 
 
 def _sparse_topk(conn, qweights, k, allowed):
+    # 【试过并已否掉的改动 · 2026-09-21】给 query 的每个词乘「本库 IDF」
+    #
+    # 动机：「Agent 记忆」搜不准 —— 单搜「记忆」时目标文章两路都排 #1，
+    #   加上「Agent」后 sparse 路直接掉出前 20（本库 15% 的段含 Agent、2% 含记忆）。
+    #   看起来就是经典的「高频词淹没稀有词」，而 BGE-M3 的 sparse 权重学自通用
+    #   语料、不知道词在本库的常见度 —— 乘个库内 IDF 似乎是标准解法。
+    #
+    # 实测结果：**整体变差，已回滚**。同一套 37 条评测集：
+    #   MRR 0.880 → 0.842、Recall@1 0.611 → 0.567、nDCG@10 0.855 → 0.834，
+    #   而那个 case 只从 #14 挪到 #12。
+    #
+    # 为什么错：「Agent 记忆」里的「Agent」**是用户意图的一部分**（他要的就是
+    #   Agent 相关的记忆），不是需要压制的噪声。降它的权，等于把有效的限定条件
+    #   当成干扰丢掉 —— 于是别的多词 query 一起被拖下水。
+    #   理论正确 ≠ 在这个库上正确；这类改动**必须跑评测再定**。
     idx = get_index(conn)
     vocab, matrix, cids = idx["vocab"], idx["matrix"], idx["chunk_ids"]
     if matrix.shape[0] == 0:
