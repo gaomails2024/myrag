@@ -231,6 +231,23 @@ def _blocks(md: str):
                            "text": "\n".join(tbl).strip()})
             continue
 
+        # 块引用（`> `）单独成块 —— **尤其是 OCR 注入的「图片文字」**。
+        # 以前它只是一行普通文本，和前后正文并进同一个 para、再按标题合并成
+        # 上千字的长段；而精排在检索时只读段落前 320 字符（见 config.RERANK_MAX_CHARS），
+        # 于是图内文字**根本没参与排序**。实测：206 个含「图片文字」的段，
+        # 平均 1265 字、99.5% 超过 320 字符，标记平均出现在第 261 字符处 ——
+        # 精排的前 320 字符刚好只够看到标记行，一个字的内容都读不到。
+        if line.lstrip().startswith(">"):
+            flush()
+            quote = []
+            while i < n and lines[i].lstrip().startswith(">"):
+                quote.append(lines[i])
+                i += 1
+            t = "\n".join(quote).strip()
+            if t:
+                blocks.append({"heading_path": cur_path, "kind": "quote", "text": t})
+            continue
+
         # 编号后紧跟一行短标题名 → 合并（`# 01` + `缘起` = `01 缘起`）
         if pending and _is_short_label(line):
             flush()
@@ -283,6 +300,17 @@ def split_markdown(md: str, max_tokens=None, overlap_ratio=None):
         texts, budget, cur, cur_tok = [], max_tokens, [], 0
         for b in segs:
             tk = _count(b["text"])
+            if b["kind"] == "quote":
+                # 块引用**强制独占一个 chunk**（不与相邻正文合并）。
+                # 只「独立成块」还不够：下面的累积逻辑只要没超 max_tokens 就会
+                # 把它和前后正文拼回同一个 chunk，长段问题原样存在。独立成段后
+                # 图内文字才谈得上被精排看全、被单独命中。
+                if cur:
+                    texts.append("\n\n".join(cur))
+                    cur, cur_tok = [], 0
+                texts.append(b["text"])
+                budget = max_tokens - overlap
+                continue
             if b["kind"] in ("code", "table") and tk > max_tokens:
                 warnings.append(
                     "%s %d token 超上限，按 PRD §7.2 整块保留未切" % (b["kind"], tk))
@@ -303,7 +331,13 @@ def split_markdown(md: str, max_tokens=None, overlap_ratio=None):
             texts.append("\n\n".join(cur))
 
         for k, t in enumerate(texts):
-            final = t if k == 0 else (_tail(texts[k - 1], overlap) + "\n\n" + t)
+            # 块引用段（`> ` 开头，即 OCR 注入的图内文字）**不带 overlap 前缀**：
+            # 精排窗口只有 320 字符，153 字符的前缀会把真正的内容挤出去 ——
+            # 而图内文字是图片里的字，它的上文由相邻 chunk 完整保留，不差这点重叠。
+            if k == 0 or t.lstrip().startswith(">"):
+                final = t
+            else:
+                final = _tail(texts[k - 1], overlap) + "\n\n" + t
             final = final.strip()
             if final:
                 chunks.append({"heading_path": g["path"], "text": final,
