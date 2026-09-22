@@ -91,7 +91,11 @@ MAX_IMG_RATIO = 8      # 长宽比超过此值 → 分割线 / 装饰长条
 # 会让用户往错误方向排查（去重新扫码/换网络，其实页面类型根本不对）。
 VERIFY_HINTS = ("环境异常", "去验证", "js_verify", "verify_page", "访问过于频繁",
                 "请输入验证码", "操作过于频繁", "该内容已被发布者删除",
-                "此内容因违规无法查看")
+                "此内容因违规无法查看",
+                # 微信另一种报错页：可见区只有「未知错误，请稍后再试」，
+                # 内嵌 JS 里把 title 写成「失效的验证页面」「你暂无权限查看此页面内容」。
+                # 不认它 → 落 not_article → 引导用户重新复制链接（无效动作）。2026-09-22 实测。
+                "未知错误，请稍后再试")
 
 
 # ---------------------------------------------------------------- 工具
@@ -578,7 +582,11 @@ def fetch_one(url, stage_root, sleep_before):
         md, img_urls, notes = html_to_markdown(body or "")
     body_len = len(md)
 
-    if body_len < MIN_BODY_CHARS:
+    # 图片合辑的 md 只有「文案 + 图片占位」，长度天然可能低于门槛，
+    # 但只要图抓到了就是有效条目，不该被字数门槛卡成 not_article（2026-09-22 实测：
+    # 一条 9 图的合辑，md≈120 字 → 落 not_article，引导用户重新复制链接，是无效动作）。
+    album_ok = album is not None and bool(album["images"])
+    if body_len < MIN_BODY_CHARS and not album_ok:
         if looks_like_verify(page):
             out["fail_reason"] = "verify_page"
             out["detail"] = ("%s返回了验证/异常页，稍后重试或换网络（不是链接错了）"
