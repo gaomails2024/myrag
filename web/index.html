@@ -14,6 +14,7 @@
   --border:#DEDDD6; --border-2:#B0AFA9;
   --hair:#DEDDD6;              /* 发丝线：无边框分卡时的分隔线 */
   --card-surface:#F6F5F2;      /* 卡片底：比页面亮一档，避免同色发飘 */
+  --side-w:196px;              /* 左侧导航宽度（见 .tabs）。窄屏会收窄，见文件末尾的 @media */
   --text:#1C1C1A; --text-2:#6A6963; --text-3:#8F8E88;
   --accent:#7E93A8; --accent-soft:#E7ECF0; --accent-line:#C3CDD5;
   /* 分类配色板：**莫兰迪色系**（低饱和、带灰调）。
@@ -43,6 +44,10 @@ body{
   font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",
        "Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
   -webkit-font-smoothing:antialiased;
+  /* 给左侧固定导航让位：侧栏是 position:fixed（脱离文档流），
+     由这里的 padding 撑出空间 —— 顶栏与 main 都在 padding 内，
+     会自动从侧栏右侧开始，不必各自再加 margin。 */
+  padding-left:var(--side-w);
 }
 a{color:var(--accent); text-decoration:none}
 a:hover{text-decoration:underline}
@@ -100,22 +105,32 @@ svg{flex:none; display:block}
 .chip .dot{width:6px;height:6px;border-radius:50%;background:var(--ok)}
 .chip .dot.off{background:var(--warn)}
 
-/* ============================================================ 页签 */
+/* ============================================================ 左侧导航 */
+/* 导航放在**左侧固定栏**，而不是顶部横条。
+   起因：分类会随使用增长，横条一旦放不下就只能横向滚动，而滚动条是隐藏的
+   （下面 .tabs::-webkit-scrollbar），等于把靠后的分类悄悄藏起来，
+   既不提示有更多、也没法一眼看全。竖排天然可滚动，且给分类留的是**高度**。
+
+   布局靠两半配合：侧栏 position:fixed 脱离文档流，由 body 的 padding-left 让位。 */
 .tabs{
-  display:flex; gap:2px; padding:8px 18px 0; overflow-x:auto;
-  background:var(--bg); border-bottom:1px solid var(--hair);
-  position:sticky; top:59px; z-index:30;
+  position:fixed; left:0; top:0; bottom:0; width:var(--side-w);
+  display:flex; flex-direction:column; align-items:stretch; gap:2px;
+  padding:14px 10px; overflow-y:auto; overflow-x:hidden;
+  background:var(--bg); border-right:1px solid var(--hair);
+  z-index:35;
 }
-.tabs::-webkit-scrollbar{height:0}
+.tabs::-webkit-scrollbar{width:0}
 .tab{
-  display:inline-flex; align-items:center; gap:7px; padding:9px 14px;
-  border-radius:var(--radius-s) var(--radius-s) 0 0; cursor:pointer;
-  color:var(--text-2); border-bottom:2px solid transparent; white-space:nowrap;
-  background:none; border-left:0;border-right:0;border-top:0; font-size:13px;
+  display:flex; align-items:center; gap:8px; padding:9px 11px;
+  border-radius:var(--radius-s); cursor:pointer; text-align:left;
+  color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  background:none; border:0; font-size:13px; width:100%;
   transition:color .16s cubic-bezier(.2,.7,.3,1);
 }
 .tab:hover{color:var(--text); background:var(--panel-2)}
-.tab.on{color:var(--text); border-bottom-color:var(--text); font-weight:700}
+.tab.on{color:var(--text); background:var(--panel-3); font-weight:700}
+.tab .ico{flex:none}
+.tab .badge-n{margin-left:auto}
 .tab .badge-n{
   background:var(--warn); color:#FFFDF8; border-radius:99px;
   padding:1px 7px; font-size:10.5px; font-weight:700; line-height:16px;
@@ -460,6 +475,14 @@ details.spare .kvgrid{font-size:12.5px}
 #toast.on{opacity:1; transform:translateX(-50%)}
 .spin{animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* 窄屏降级：侧栏收窄。分类再多也仍是**竖排可滚动**（这正是改成侧栏的目的），
+   只是更省横向空间。（放文件末尾以覆盖上面的 .tab 定义） */
+@media (max-width:820px){
+  :root{--side-w:132px}
+  .tab{font-size:12px; padding:8px 9px; gap:6px}
+  .tab .muted{display:none}   /* 小屏先让位的是计数，分类名更重要 */
+}
 </style>
 </head>
 <body>
