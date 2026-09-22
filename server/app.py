@@ -5,6 +5,7 @@ Base http://127.0.0.1:8765，全部 JSON。
 **本后端不提供抓取接口** —— 抓取在 Skill 侧脚本完成，后端只接收抓取结果。
 """
 
+import logging
 import re
 import threading
 from contextlib import asynccontextmanager
@@ -17,6 +18,17 @@ from markdown_it import MarkdownIt
 from pydantic import BaseModel, Field
 
 from . import config, db, embed, ingest, search, verify
+
+# 异常必须留**堆栈**，不能只把「类名: 消息」丢给 HTTP 响应。
+#
+# 教训（2026-09-22）：一次入库返回 500，响应里只有
+# `PermissionError: Sensitive content access was denied.`，而日志里**什么都没有** ——
+# 看起来像权限问题，实际是 WorkBuddy 注入的 sitecustomize.py 删除守卫（见 SKILL.md 第 0 步）。
+# 因为没有堆栈，只能靠写探针去猜，白花了 10 分钟以上。
+# **加上下面这几行，下次一行日志就能定位。**
+#
+# 输出会落 data/server.log（start.sh 里是 `>>"$LOG" 2>&1`）。
+log = logging.getLogger("myrag")
 
 CST = timezone(timedelta(hours=8))
 
@@ -148,6 +160,7 @@ def api_ingest(req: IngestReq):
         with db.tx() as conn:
             res = ingest.do_ingest(conn, payload)
     except Exception as e:
+        log.exception("/api/ingest 失败（payload 见上一条请求日志）")
         raise HTTPException(status_code=500,
                             detail={"ok": False, "fail_reason": "internal",
                                     "detail": "%s: %s" % (type(e).__name__, e)})
@@ -161,6 +174,7 @@ def api_ingest_text(req: IngestTextReq):
         with db.tx() as conn:
             res = ingest.do_ingest_text(conn, req.model_dump())
     except Exception as e:
+        log.exception("/api/ingest-text 失败")
         raise HTTPException(status_code=500,
                             detail={"ok": False, "fail_reason": "internal",
                                     "detail": "%s: %s" % (type(e).__name__, e)})
@@ -673,6 +687,7 @@ def api_verify(article_id: str):
         with db.tx() as conn:
             res = verify.verify_article(conn, article_id)
     except Exception as e:
+        log.exception("/api/articles/%s/verify 失败", article_id)
         raise HTTPException(status_code=500,
                             detail={"ok": False, "fail_reason": "internal",
                                     "detail": "%s: %s" % (type(e).__name__, e)})

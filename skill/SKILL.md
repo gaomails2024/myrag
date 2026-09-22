@@ -85,13 +85,34 @@ curl -s --max-time 3 http://127.0.0.1:8765/api/health
 1. **必须把后端与本次会话的 shell 生命周期绑在一起。** 在工具里跑 `start.sh`，脚本 exit 的那一刻，
    后端会随 shell 一起被杀掉——健康检查当时是通过的，下一次调用就 Connection refused，看起来像"自己挂了"。
    做法：把 `start.sh` 放进一个长时间存活的调用里（脚本跑完接一个 `sleep`），让它整轮都待在后台。
-2. **启动前必须清掉 WorkBuddy 的删除守卫环境变量**：
-   `env -u CODEBUDDY_SAFE_DELETE_BULK_STATE_DIR -u CODEBUDDY_TOOL_CALL_ID -u CODEBUDDY_SAFE_DELETE_BULK_GUARD bash start.sh`。
-   否则后端会继承这三个变量，`ingest` 成功写库后清理 stage 时 `shutil.rmtree` 撞上 bulk-delete guard，
-   抛 `SystemExit(1)` → HTTP 500（日志里是 `shim/sitecustomize.py _check_bulk_delete_guard`）。
-   表现极具迷惑性：**头几条能成功、后面开始 500**（守卫按累计量触发）。
-   已入库但报 500 时，重跑会得到 `UNIQUE constraint failed: articles.url_canon`——说明那条其实已经进去了，
-   查库确认即可，不要重复提交。（守卫只在 python 侧，不影响 `rm` 命令。）
+2. **启动前必须把 WorkBuddy 注入的环境剥掉**：
+
+   ```bash
+   env -u PYTHONPATH \
+       -u CODEBUDDY_SAFE_DELETE_BULK_STATE_DIR \
+       -u CODEBUDDY_TOOL_CALL_ID \
+       -u CODEBUDDY_SAFE_DELETE_BULK_GUARD \
+       bash {{MYRAG_HOME}}/scripts/start.sh
+   ```
+
+   **`PYTHONPATH` 排在第一位，也是最容易被漏掉的一个。** WorkBuddy 会把它指向
+   `…/genie/out/vendor/shim`，而那个目录里的 `sitecustomize.py` **会被 Python 自动加载执行**
+   —— `sitecustomize` 是 Python 的启动钩子，**不需要谁去 import 它**。shim 里挂着删除守卫，
+   于是后端**继承**它：`ingest` 写库成功后清理 stage 时 `shutil.rmtree` 撞上守卫，
+   抛 `SystemExit(1)` → **HTTP 500 `PermissionError: Sensitive content access was denied.`**
+
+   **只清那三个 `CODEBUDDY_*` 是不够的**：它们是守卫的**开关**，而 `PYTHONPATH` 是守卫的**载体**。
+   载体不清，shim 照样被加载执行；清了载体，那三个变量清不清都无所谓（保留只是双保险）。
+
+   表现极具迷惑性，别走弯路：**头几条能成功、后面开始 500**（守卫按累计量触发）。
+   它**只在 python 侧生效** —— 清理 stage 用 `rm` 命令不受影响，这可作快速判据。
+
+   **已入库却报 500 时**，重跑会得到 `UNIQUE constraint failed: articles.url_canon`，
+   说明那条**其实已经进去了**：查库确认即可，**不要重复提交**。
+
+   > **排障顺序（照这个走）**：先看后端日志**有没有 traceback** → 没有就怀疑**环境注入** →
+   > **直接清 `PYTHONPATH` 重启试**。
+   > 实测绕路的代价：写探针复现 + 两次长等待，白花 10 分钟以上才回到这条路上。
 
 配套脚本（都在系统根的 `scripts/` 下）：`start.sh` 启动 / `stop.sh` 停止 / `status.sh` 查状态。
 
