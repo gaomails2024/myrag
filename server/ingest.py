@@ -21,6 +21,7 @@
 
 import importlib.util
 import json
+import logging
 import os
 import re
 import shutil
@@ -30,7 +31,28 @@ import numpy as np
 
 from . import config, db, embed
 
+log = logging.getLogger("myrag")
+
 CST = timezone(timedelta(hours=8))
+
+
+def _drop_stage(stage_token, sdir=None):
+    """尽力删掉落地区。**永不抛异常**。
+
+    为什么抽成函数、为什么捕获 BaseException：
+    调用它的位置都在**写库成功之后**，清理只是收尾 —— 不该因为删不掉一个临时目录
+    就让整次入库失败（返回 500，用户以为没入库）。
+
+    实测踩过（2026-09-22）：WorkBuddy 的 bulk-delete guard（shim/sitecustomize.py）
+    抛的是 `SystemExit`，它属于 BaseException、**不被 `except Exception` 捕获**，
+    于是异常继续上冒 → HTTP 500，而目录也没删掉 → 永久残留。
+    """
+    try:
+        d = sdir if sdir is not None else (config.STAGE_DIR / (stage_token or ""))
+        if d and d.exists():
+            shutil.rmtree(d)
+    except BaseException as e:                                  # noqa: BLE001
+        log.warning("stage 清理失败（已入库，不影响数据）：%s → %s", stage_token, e)
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
@@ -610,6 +632,10 @@ def do_ingest(conn, req: dict) -> dict:
     # 幂等 ①：同一个 stage_token 已 ingest 过（stage 目录已被清理，不能靠它判断）
     row = db.find_by_stage_token(conn, stage_token)
     if row:
+        # **这里也要清**：上面那句「stage 目录已被清理」只在正常路径成立。
+        # 若第一次入库在清理环节失败（见 _drop_stage 的说明），目录会留下；
+        # 重试时正好命中这条幂等 —— 于是那个目录**永远没人清**（实测残留 17 个）。
+        _drop_stage(stage_token)
         return {"ok": True, "dup": True, "id": row["article_id"], "fail_reason": None,
                 "detail": "stage_token 已入库（幂等，未重复写）"}
 
@@ -625,6 +651,8 @@ def do_ingest(conn, req: dict) -> dict:
     dup = db.find_by_canon(conn, url_canon)
     if dup:
         db.log_ingest(conn, url_canon, dup["id"], "skip_dup", {"stage_token": stage_token})
+        # 内容库里已经有了，这份 stage 不会再被用 —— 留着只会堆目录
+        _drop_stage(stage_token)
         return {"ok": True, "dup": True, "id": dup["id"], "fail_reason": None,
                 "detail": "url_canon 已存在"}
 
@@ -713,11 +741,7 @@ def do_ingest(conn, req: dict) -> dict:
                    "chunks": idx["chunks"], "warnings": idx["warnings"]})
 
     # 成功才清理 stage；失败保留便于重试（PRD §9）
-    try:
-        if sdir and sdir.exists():
-            shutil.rmtree(sdir)
-    except Exception:
-        pass
+    _drop_stage(stage_token, sdir)
 
     return {"ok": True, "dup": False, "id": article_id, "fail_reason": None,
             "chunks": idx["chunks"], "chars": len(md), "attachments": len(attachments),

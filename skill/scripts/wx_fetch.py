@@ -561,9 +561,19 @@ def fetch_one(url, stage_root, sleep_before):
     album = None
     title = None
     if is_wx:
-        body = extract_container(page)
-        if body is None:                       # 不是文章模板 → 试试图片合辑
-            album = extract_image_album(page, url)
+        # **先试合辑，再提正文** —— 顺序不能反。
+        #
+        # 原来的写法是「body 为 None 才试合辑」，但 `extract_container` 的返回约定是
+        # 「没有 #js_content → None；有但内容为空 → ""」，而**合辑页里通常也有 #js_content**
+        # （里面是空的），于是 body 是 "" 而非 None → `body is None` 永不成立 →
+        # 合辑分支永远进不去 → 正文为空 → 落 not_article（2026-09-23 实测 5 条全中）。
+        #
+        # `extract_image_album` 自带判据（URL 含 image_detail 或页面含
+        # picture_page_info_list），不是合辑就返回 None，所以**它可以直接先跑**，
+        # 既不需要也不该拿正文提取的结果当门禁。
+        album = extract_image_album(page, url)
+        if album is None:
+            body = extract_container(page)
     else:
         body = extract_generic(page)
 
