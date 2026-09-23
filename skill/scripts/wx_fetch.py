@@ -358,7 +358,11 @@ def _extract_picture_list(page):
     每个元素有**两个** cdn_url，第二个是加水印的版本，所以按元素配对切块、
     每块只取第一个，否则图片会翻倍。
     """
-    m = re.search(r"picture_page_info_list\s*:\s*\[", page)
+    # `[:=]` 两种都收：真实页面是对象属性 `picture_page_info_list: [...]`，
+    # 但**上面第一关是宽松的子串匹配**（`in page`），万一微信改成 `var x = [...]`
+    # 就会「第一关过、第二关不过」—— 拿到标题却图集为空 → album_ok=False →
+    # 又落 not_article，而且表现和合辑识别完全失效一模一样，很难查。
+    m = re.search(r"picture_page_info_list\s*[:=]\s*\[", page)
     if not m:
         return []
     block = _match_block(page, m.end() - 1)
@@ -369,7 +373,10 @@ def _extract_picture_list(page):
             continue
         elem = _match_block(block, em.start())
         cursor = em.start() + len(elem)
-        u = re.search(r"cdn_url\s*:\s*['\"]([^'\"]+)['\"]", elem)
+        # 键名两侧的引号可有可无：真实页面是 JS 对象字面量（裸键 `cdn_url: '…'`），
+        # 但若微信哪天改成 JSON 风格（`"cdn_url": "…"`），只认裸键就会**静默失效** ——
+        # 表现和「合辑识别没做」一模一样（拿到标题、图集为空 → album_ok=False → not_article）。
+        u = re.search(r"[\"']?cdn_url[\"']?\s*:\s*['\"]([^'\"]+)['\"]", elem)
         if u:
             u = html_mod.unescape(u.group(1)).strip()
             if u.startswith("http"):
