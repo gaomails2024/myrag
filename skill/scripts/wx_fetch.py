@@ -97,6 +97,20 @@ VERIFY_HINTS = ("环境异常", "去验证", "js_verify", "verify_page", "访问
                 # 不认它 → 落 not_article → 引导用户重新复制链接（无效动作）。2026-09-22 实测。
                 "未知错误，请稍后再试")
 
+# **强特征**：这些串只可能出现在微信的验证/拦截页上，不会出现在正常页面的业务脚本里，
+# 所以**可以全文匹配**（不剥 <script>）。与上面 VERIFY_HINTS 的区别见 looks_like_verify()。
+#
+# 为什么要单独有这一组（2026-09-23 实测 5/5 失败）：微信有一种**没有文案的验证页** ——
+# body 只有空的 weui-msg、<title> 为空，上面那些词**一个都不出现**，
+# 铁证只有两处，而且**都在 <script> 里面**：
+#     PAGE_MID='mmbizwap:secitptpage/verify.html'
+#     https://captcha.gtimg.com/TCaptcha.js
+# 于是「先剥 script 再找词」对它天然失效 —— 上一次能认出来纯属巧合
+# （同一串还出现在 <link href="…/secitptpage/verify80c8.css">，link 不在剥离范围内）。
+# 认不出的后果不只是漏报：它会落 not_article，把用户引向「重新复制链接」这种无效动作，
+# 而正确的处置是「等一会儿或换网络」。
+VERIFY_STRONG_HINTS = ("secitptpage/verify", "TCaptcha.js")
+
 
 # ---------------------------------------------------------------- 工具
 
@@ -202,10 +216,19 @@ def looks_like_verify(page) -> bool:
         实测 skillhub.cn 的页面里有 `window.alert('检测到浏览器环境异常…')`，
         裸匹配会把正常页面误判成验证页，让用户往反爬方向白折腾。
 
-    所以先剥掉 `<script>` / `<style>`，只在**可见内容**里找特征词。
+    但「一律剥掉 script 再找词」也不是万能的 —— 微信那种**无文案验证页**的铁证
+    （`secitptpage/verify`）恰恰写在 script 里（详见 VERIFY_STRONG_HINTS 的说明）。
+
+    所以分两级：
+      ① **强特征：全文匹配** —— 这些串只可能出现在验证页上，剥掉反而会漏；
+      ② **弱特征：只在可见内容里找** —— 剥掉 script/style，避免站点业务脚本里的
+         「环境异常」把正常页面误判成验证页。
     """
-    s = re.sub(r"<(script|style)\b.*?</\1>", " ", page or "", flags=re.S | re.I)
-    return any(h in s for h in VERIFY_HINTS)
+    s = page or ""
+    if any(h in s for h in VERIFY_STRONG_HINTS):          # ① 全文
+        return True
+    visible = re.sub(r"<(script|style)\b.*?</\1>", " ", s, flags=re.S | re.I)
+    return any(h in visible for h in VERIFY_HINTS)        # ② 可见区
 
 
 def looks_like_spa(page) -> bool:
