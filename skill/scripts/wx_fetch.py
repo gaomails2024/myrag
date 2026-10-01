@@ -62,6 +62,11 @@ TIMEOUT = 30
 MIN_HTML_BYTES = 20 * 1024
 MIN_BODY_CHARS = 200
 
+# 走「图片合辑」分支的正文上限：#js_content 去标签后实质文本少于这么多字，才允许改判合辑。
+# 合辑页的 #js_content 是空壳（0 字），普通图文几百到几千字 —— 靠这个把两者分开。
+# 别设大：设大了会把短图文也误判成合辑，正文直接丢掉。
+ALBUM_BODY_MAX_CHARS = 20
+
 KEEP_PARAMS = ("__biz", "mid", "idx", "sn")
 DROP_PARAMS = ("mpshare", "scene", "srcid", "chksm", "sharer_shareinfo",
                "sharer_shareinfo_first", "exportkey", "pass_ticket", "ascene",
@@ -408,16 +413,34 @@ def _clean_wx_desc(s):
     return s.strip()
 
 
-def extract_image_album(page, url):
+def extract_image_album(page, url, body=None):
     """微信图片合辑（如分享链接带 `t=pages/image_detail`，或页面含 picture_page_info_list）。
 
-    这类页面**没有 `js_content` 容器**，内容主体是一组图（典型是长图/多页图），
+    这类页面**没有实质性正文**，内容主体是一组图（典型是长图/多页图），
     但有完整文案放在 og:description 里。早期实现按「正文 0 字」直接拒收、
     还误报成验证页 —— 其实页面是好的，只是模板不同。
 
-    返回 None 表示不像图片合辑，交给调用方按别的类型处理。
+    门槛（2026-09-24 修，宁可认不出合辑，也不能把文章吃掉）：
+      1. **强信号**：URL 带 `t=pages/image_detail`，或页面里出现 `pages/image_detail`；
+      2. 真的解析出图片（imgs 非空）；
+      3. `body`（#js_content 提取结果）没有实质文本。
+
+    ⚠️ `picture_page_info_list` **单独不算数**：它是微信文章页的**通用变量**
+    （图片轮播查看器的数据），不是合辑专属。2026-09-23 曾把判据简化成
+    「变量存在即合辑」，结果凡是带图的普通文章都被判成合辑、正文被整段跳过
+    （同一批链接前一天能提 3733/7015 字，改完变 0 字；连 0 图的文章也中招）。
+
+    更麻烦的是：微信现在直连返回的常常是**壳页面**——正文由 JS 注入，静态 HTML 里
+    连 `id="js_content"` 都没有，但 `picture_page_info_list` 里照样躺着全部配图
+    （2026-09-24 实测：2.6MB 的页面，js_content 出现 0 次、配图 7 张）。
+    这种页面一旦被判成合辑，就既拿不到正文、也进不了 `need_render` 兜底，
+    等于把一条好文章判死。所以弱信号一律降级：正文空 → 报 `need_render` 交给渲染。
     """
-    if "image_detail" not in (url or "") and "picture_page_info_list" not in page:
+    strong = "image_detail" in (url or "") or "pages/image_detail" in page
+    if not strong:
+        return None
+    # 有正文就不是合辑 —— 即便 URL 带 image_detail，正文优先。
+    if _text_len(body) >= ALBUM_BODY_MAX_CHARS:
         return None
 
     title = pick([r'<meta\s+property="og:title"\s+content="([^"]*)"',
@@ -434,7 +457,9 @@ def extract_image_album(page, url):
                     continue
                 if re.search(r"(mmbiz\.qpic\.cn|mmbiz\.qlogo\.cn)", u):
                     imgs.append(u)
-    if not title and not imgs:
+    if not imgs:
+        # 没图就不是图片合辑 —— 之前这里是 `not title and not imgs`，
+        # 于是「只有标题、一张图都没有」的普通文章也被判成合辑（实测 #38/#4/#42）。
         return None
     return {"title": title, "desc": desc, "images": imgs}
 
@@ -591,19 +616,22 @@ def fetch_one(url, stage_root, sleep_before):
     album = None
     title = None
     if is_wx:
-        # **先试合辑，再提正文** —— 顺序不能反。
+        # **正文优先** —— 顺序不能反（2026-09-24 改回）。
         #
-        # 原来的写法是「body 为 None 才试合辑」，但 `extract_container` 的返回约定是
-        # 「没有 #js_content → None；有但内容为空 → ""」，而**合辑页里通常也有 #js_content**
-        # （里面是空的），于是 body 是 "" 而非 None → `body is None` 永不成立 →
-        # 合辑分支永远进不去 → 正文为空 → 落 not_article（2026-09-23 实测 5 条全中）。
+        # 2026-09-23 曾改成「先试合辑，再提正文」：只要页面里出现 picture_page_info_list
+        # 就认定合辑。但这串是微信文章页的**通用变量**（图片轮播查看器的数据），不是
+        # 合辑专属 —— 结果凡是带图的普通文章都被判成合辑，正文被整段跳过。实测：
+        # js_content 与 picture_page_info_list 在普通文章页里同时存在，正文能提
+        # 392/1082 字却一律走合辑；昨天入库的两篇（3733/7015 字）今天重抓也变合辑；
+        # 连 0 图的文章也中招（说明纯是字符串命中，跟图片无关）。
         #
-        # `extract_image_album` 自带判据（URL 含 image_detail 或页面含
-        # picture_page_info_list），不是合辑就返回 None，所以**它可以直接先跑**，
-        # 既不需要也不该拿正文提取的结果当门禁。
-        album = extract_image_album(page, url)
-        if album is None:
-            body = extract_container(page)
+        # 现在的顺序：先提 #js_content；**只有正文没实质文本时**才试合辑，
+        # 且合辑自身还要求「真的解析出图」（见 extract_image_album 的三道门槛）。
+        body = extract_container(page)
+        if _text_len(body) < ALBUM_BODY_MAX_CHARS:
+            album = extract_image_album(page, url, body)
+            if album is not None:
+                body = None
     else:
         body = extract_generic(page)
 
@@ -631,9 +659,13 @@ def fetch_one(url, stage_root, sleep_before):
             out["fail_reason"] = "verify_page"
             out["detail"] = ("%s返回了验证/异常页，稍后重试或换网络（不是链接错了）"
                              % ("微信" if is_wx else "站点"))
-        elif not is_wx and looks_like_spa(page):
-            # 非微信 + 有壳无内容 = JS 渲染页面。**不是反爬、不是页面坏了**，
-            # 静态抓取天生拿不到，得换渲染方式。
+        elif looks_like_spa(page):
+            # 有壳无内容 = JS 渲染页面。**不是反爬、不是页面坏了**，静态抓取天生拿不到。
+            #
+            # 微信链接同样会这样（2026-09-24 实测）：直连返回的 2.6MB 页面里正文在
+            # JS 变量里，连 `id="js_content"` 都没有 —— 以前 `not is_wx` 把它挡在门外，
+            # 于是这类文章只能落 not_article（让用户「换个方式复制链接」，白折腾）。
+            # 渲染后正文完整可得（同日实测：同一条链接渲染后正常入库），所以放开。
             out["fail_reason"] = "need_render"
             out["detail"] = ("页面是 JS 渲染的（HTML 里只有外壳、正文为空），"
                              "静态抓取拿不到内容。需用浏览器渲染后重取，"

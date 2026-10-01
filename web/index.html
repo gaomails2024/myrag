@@ -603,9 +603,9 @@ details.spare .kvgrid{font-size:12.5px}
 const API_BASE = '';
 
 const VERDICT = {
-  try:   { t:'值得试', c:'vtry' },
-  watch: { t:'观望',   c:'vwatch' },
-  dead:  { t:'已死',   c:'vdead' }
+  try:   { t:'建议试试', c:'vtry' },
+  watch: { t:'建议观望', c:'vwatch' },
+  dead:  { t:'建议放弃', c:'vdead' }
 };
 
 /* 分类不写死：启动时从 /api/categories 拉取存进 state.cats。
@@ -678,7 +678,7 @@ function catBadge(c){
 }
 function verdictBadge(v){
   const d = VERDICT[v];
-  if (!d) return '<span class="bdg ghost">未定结论</span>';
+  if (!d) return '<span class="bdg ghost">暂无建议</span>';
   return `<span class="bdg ${d.c}">${d.t}</span>`;
 }
 function delta(n){
@@ -1437,9 +1437,9 @@ async function renderSettings(){
           <textarea class="ta" style="min-height:96px" data-f="criteria">${esc(c.criteria || '')}</textarea></div>
         <div class="field"><label>收录原则（你判断「值不值得」的标准，注入 Agent）</label>
           <textarea class="ta" style="min-height:120px" data-f="principles"
-            placeholder="例：「值得试」= 有正式 release + 三个月内有提交 + 能自托管跑起来；缺一项即「观望」">${esc(c.principles || '')}</textarea>
+            placeholder="例：「建议试试」= 有正式 release + 三个月内有提交 + 能自托管跑起来；缺一项即「建议观望」">${esc(c.principles || '')}</textarea>
           <div class="muted" style="font-size:12.5px;margin-top:5px">
-            划分标准决定<b>归哪类</b>，原则决定<b>怎么看</b> —— Agent 据此判断价值、定结论、决定核查侧重</div></div>
+            划分标准决定<b>归哪类</b>，原则决定<b>怎么看</b> —— Agent 据此判断价值、给建议、决定核查侧重</div></div>
         <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
           <button class="btn primary" data-act="save-cat" data-cat="${attr(c.key)}">保存</button>
           <span class="muted" style="font-size:12.5px">改前缀不动已有编号；改检索方式只影响之后入库的文章</span>
@@ -1980,7 +1980,7 @@ async function editMeta(id){
   if (tagsRaw === null) return;
   const tags = tagsRaw.split(',').map(s => s.trim()).filter(Boolean);
   const verdict = hasFeature(a.category, 'repo_card')
-    ? (window.prompt('结论：try / watch / dead（留空表示不改）', a.verdict || '') || '')
+    ? (window.prompt('建议：try / watch / dead（留空表示不改）', a.verdict || '') || '')
     : '';
   const body = { summary, tags };
   if (verdict && VERDICT[verdict]) body.verdict = verdict;

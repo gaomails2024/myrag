@@ -31,17 +31,37 @@ updated: 2026-09-14
 
 用户不会说别的，这 5 个字母就是全部触发词。
 
+### 入库目标：local 还是 cloud（先分流）
+
+本 Skill 有两个入库目标，**默认 `local`**（本机系统），仅在环境变量 `MYRAG_TARGET=cloud`
+（或使用者明确说「入 4P / 入云端 / 入 WeKnora」）时走 cloud：
+
+| 目标 | 出口 | 适用 |
+|---|---|---|
+| `local`（默认） | `POST 127.0.0.1:8765/api/ingest` → 本机 SQLite | 个人库，原有行为一字不变 |
+| `cloud` | `{{SKILL_DIR}}/scripts/wk_push.py` → WeKnora（AIHub4P 云端） | 项目制采集：写入项目 KB，带来源与归属人 |
+
+cloud 模式的变化只有三处（下文各步有标注）：**第 0 步跳过本机后端探活**（不依赖 8765）；
+**第 1 步不做本地查重**（cloud 模式去重由 wk_push 的服务端幂等保证，重复推送返回 `dup:true` 按跳过处理）；
+**第 5 步入库改调 wk_push.py**。抓取（第 2 步）、配图过滤与 OCR（第 2.5 步）、判类（第 3 步）、
+抽取物（第 4 步）、核查（第 6 步）**全部不变**——加工判断仍在端侧。
+
+cloud 模式配置（`~/.myrag-cloud.json`，600 权限，由使用者/管理员预置，不进任何仓库）：
+`base_url` / `api_key`（WeKnora 受限 API Key，能力 ingest+retrieve、KB 白名单）/ `kb_id` / `tenant_id` / `collector`。
+
 ## 路径常量
 
 ```
 系统根目录  {{MYRAG_HOME}}/
 抓取脚本    {{SKILL_DIR}}/scripts/wx_fetch.py
+推送脚本    {{SKILL_DIR}}/scripts/wk_push.py      # 仅 cloud 模式用
 venv 解释器 {{MYRAG_HOME}}/.venv/bin/python
 stage 目录  {{MYRAG_HOME}}/data/_stage/
 系统文档    {{MYRAG_HOME}}/PRD.md
 
 **解释器约定（踩过坑）**：
-  · `{{SKILL_DIR}}/scripts/wx_fetch.py` —— **零依赖**，系统 `python3` 直接跑即可；
+  · `{{SKILL_DIR}}/scripts/wx_fetch.py` 与 `{{SKILL_DIR}}/scripts/wk_push.py` —— **零依赖**，
+    系统 `python3` 直接跑即可；
   · `{{MYRAG_HOME}}/scripts/` 下的脚本（ocr_images / reindex / eval / fetch_rerank…）——
     **依赖都装在 `{{MYRAG_HOME}}/.venv` 里，必须用 `.venv/bin/python` 跑**。
     用系统 `python3` 会报「缺少 pyobjc / yaml / FlagEmbedding」之类，不是脚本坏了。
@@ -62,7 +82,10 @@ bash scripts/install.sh --skill-dir "<本 Skill 所在目录>"
 装完再重读本文件，路径常量就正确了。使用者不熟悉命令行时，直接把这条命令原文发给他。
 ```
 
-## 第 0 步：确保系统在跑（不可跳过）
+## 第 0 步：确保系统在跑（不可跳过；cloud 模式跳过本步）
+
+> **cloud 模式（`MYRAG_TARGET=cloud`）跳过本步**——出口是远端 WeKnora，本机后端
+> 不需要在跑。也不要为了 cloud 模式去拉起本机后端。
 
 后端是**按需启动**的：不随开机启动，也可能被用户手动停掉。所以每次调用都先探活，
 不通就用脚本拉起。
@@ -153,6 +176,16 @@ POST http://127.0.0.1:8765/api/check-urls
 | 其他网页 | `web` | 通用正文定位（`<article>` → `<main>` → 文本最长的块，尽力而为） |
 | 文件直链（`.pdf/.zip/.mp4`…） | — | 判 `unsupported_file` 拒收，明确告诉用户改存网页版或直接下载 |
 | `weixin.qq.com/sph/...`（视频号） | — | **不走抓取**（判 `bad_url`），改走转写链路 |
+
+> 🔒 **合辑判定是「正文优先」，别改成字符串命中**（2026-09-24 修）：
+> `picture_page_info_list` 是微信文章页的**通用变量**（图片轮播查看器的数据），**不是合辑专属**，
+> 单独拿它当判据不成立。2026-09-23 曾改成「页面里有这串就判合辑、且先于正文提取」，
+> 结果凡是带图的普通文章都被判成合辑、正文被整段跳过（同一批链接前一天能提 3733/7015 字，
+> 改完变 0 字；连 0 图的文章也中招）。
+> 现在的顺序是：先解析 `js_content` **正文** → 只有正文没有实质文本时才试合辑，
+> 且合辑只认**强信号**（链接或页面里出现 `pages/image_detail`）+ 真的解析出图。
+> 弱信号（只有 `picture_page_info_list`）一律不判合辑，正文空就报 `need_render` 走渲染 ——
+> 否则既拿不到正文、又进不了渲染兜底，一条好文章就被判死了。
 
 > ⚠️ **本节路径全部按 WorkBuddy 的默认位置写**（`~/.workbuddy/...`）。换了 Agent 客户端
 > （Claude Code 是 `~/.claude/`、Codex 是 `~/.codex/`），或把 `video-transcript` 装在了别处，
@@ -311,13 +344,17 @@ OCR 会把它们全部变成正文。实测全库已由此产出 **808 段 / 约
 **L1 过滤掉多少，抓取日志里会报**（例：「已过滤 22 张无信息配图（尺寸过小 10 张、动图 12 张）」），
 **在最后的结果清单里向用户提一句** —— 这是"入库更干净"的证据。
 
-## JS 渲染页面（`need_render`）—— 非微信链接常遇到
+## JS 渲染页面（`need_render`）—— 微信链接现在也常遇到
 
 **症状**：抓取返回 `fail_reason = need_render`，detail 说「HTML 里只有外壳、正文为空」。
 
 **这不是反爬、也不是链接错了、更不是页面坏了** —— 是单页应用（SPA），
 内容由 JS 异步渲染，静态 HTTP 请求天生拿不到。**不要建议用户重试或换网络**
 （那会把人带到完全错误的方向）。
+
+> 微信链接同样会走到这里（2026-09-24 实测）：直连返回的页面有 2.6MB，正文却在 JS 变量里，
+> 连 `id="js_content"` 都没有。渲染后正文完整可得（同一条链接渲染后正常入库），
+> 所以**微信链接报 `need_render` 一样按本节处理，别让用户去「换个方式复制链接」**。
 
 **处理**：换用渲染抓取（真的开一个浏览器把页面跑起来）：
 
@@ -358,7 +395,7 @@ curl -s http://127.0.0.1:8765/api/categories
 | `key` | **要提交的 `category` 值**（是 `key`，不是 `name`） |
 | `name` | 显示名，只用于向用户回报 |
 | `criteria` | **判类标准，以它为准**（本文档不重复写） |
-| `principles` | **使用者的收录原则** —— 判断价值、定结论、决定核查侧重都以它为准（第 4、6 步用） |
+| `principles` | **使用者的收录原则** —— 判断价值、给建议、决定核查侧重都以它为准（第 4、6 步用） |
 | `is_default` | 为 `1` 的那个 = 判不准时落这里 |
 | `retrieval` / `features` | 入库后怎么处理，系统自己按配置做，你不用管 |
 
@@ -427,7 +464,27 @@ curl -s http://127.0.0.1:8765/api/rules
 
 ## 第 5 步：入库（id 由后端分配 —— 你不要自己编）
 
-**不要自己生成 `id`。** 编号是 `<A|T|I>-<YYYYMMDD>-<NN>`，其中 `NN` = 「该前缀该日已有条数 + 1」——这必须查库才算得准。你编必然撞号（重跑、并发、同日多篇都会撞）。
+> **cloud 模式（`MYRAG_TARGET=cloud`）走 `wk_push.py`，本步的 local 说明不适用：**
+>
+> ```bash
+> python3 {{SKILL_DIR}}/scripts/wk_push.py --stage {{MYRAG_HOME}}/data/_stage/<token> --collector <归属人>
+> # stdout 一行 JSON：{ok, dup, knowledge_id, title, url_canon, fail_reason}
+> ```
+>
+> - 判类/摘要/标签照旧写 `annotations.json`（第 3、4 步不变），wk_push 会读它并作为
+>   metadata（`category` / `summary` / `tags`）随文档写入 WeKnora；**批注里的 `tags` 会额外
+>   被解析成 WeKnora 原生标签**（库里没有的自动创建）随上传挂载，界面上可见、可按标签筛选——
+>   这就是云端模式的「自动打标」，不需要也不依赖 WeKnora 自带的 auto_tag_config（它只从已有标签里匹配）。
+> - 正文里的 `![]()` 图片行由 wk_push 剥离（图内文字已按第 2.5 步 OCR 注入正文）；来源链接、
+>   公众号、发布日、收集人会以「来源行」+ metadata 双份留痕。
+> - **`dup=true` = WeKnora 侧已有此文（服务端幂等），按跳过处理，不要重试。**
+> - 失败时 `fail_reason` 见脚本 docstring 枚举；`bad_config` = `~/.myrag-cloud.json`
+>   缺失或不全，把配置问题报给使用者，**不要退回 local 模式悄悄入库**（归属会丢）。
+> - cloud 模式不分配 `<前缀>-<日期>-<NN>` 编号（那是 local 库的编号体系）。文档名 =
+>   `<文章标题>.md`（标题做显示名，非法字符清洗、100 字截断；日期不进文件名，界面时间列已呈现），去重靠
+>   `~/.myrag-cloud-ledger.jsonl` 台账（url_canon 精确比对）+ 服务端同名 409 双保险。
+
+**local 模式：不要自己生成 `id`。** 编号是 `<A|T|I>-<YYYYMMDD>-<NN>`，其中 `NN` = 「该前缀该日已有条数 + 1」——这必须查库才算得准。你编必然撞号（重跑、并发、同日多篇都会撞）。
 
 ```
 POST http://127.0.0.1:8765/api/ingest
@@ -464,9 +521,10 @@ POST http://127.0.0.1:8765/api/ingest
 
 - `principles` 写了他在意什么 → **核查就优先回答那几个问题**。
   例：若写明「我关心能不能自托管」，先查部署方式与依赖，而不是先罗列功能。
-- `verdict`（`try` / `watch` / `dead`）**按 `principles` 里写的判定口径定** ——
-  那段文字就是使用者本人的标准，**不要另立一套你自己的**。
-- `principles` 为空时：按通用口径（成熟度、维护活跃度、能否自托管）判断，
+- `verdict`（`try` / `watch` / `dead`）**是给用户的「建议」，不是判定** ——
+  按 `principles` 里写的口径给；那段文字就是使用者本人的标准，**不要另立一套你自己的**。
+  采不采用由用户定，你只负责把事实和理由讲清楚。
+- `principles` 为空时：按通用口径（成熟度、维护活跃度、能否自托管）给建议，
   并在 `boundary` 里写清你用的是哪套口径。
 
 **为什么这步不能省**：这类内容的价值不在文章里，在仓库里。自媒体常夸大（蹭热词、单方面贴标签、把 roadmap 说成现状）。**只复述文章 = 这篇白收了。**

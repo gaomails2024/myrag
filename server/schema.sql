@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS app_cards (
   created_date  TEXT,                      -- 仓库创建日期，用于判断"年龄"
   boundary      TEXT,                      -- 能力边界（与宣传的差距）
   deploy_note   TEXT,                      -- 部署条件（能否自托管、依赖）
-  verdict       TEXT,                      -- try | watch | dead
+  verdict       TEXT,                      -- 建议（try | watch | dead）：Agent 给的建议，非系统判定
   evidence      TEXT DEFAULT '{}',         -- JSON：核实记录（含来源与时间）
   verified_at   TEXT
 );
