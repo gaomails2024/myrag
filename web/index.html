@@ -206,7 +206,8 @@ main{padding:24px 20px; max-width:1180px; margin:0 auto}
                 white-space:nowrap; font-size:13.5px}
 .latest .li .dt{flex:none; font-size:12px; color:var(--text-2)}
 .trend{display:flex; align-items:flex-end; gap:10px; height:112px; padding:6px 2px 0}
-.trend .col{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; height:100%}
+.trend .col{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; height:100%; cursor:pointer; border-radius:6px}
+.trend .col:hover .n{color:var(--accent)}
 .trend .bar{
   width:100%; max-width:44px; min-height:4px; border-radius:99px 99px 3px 3px;
   background:var(--accent);   /* 石青色，与顶栏搜索按钮同色 */
@@ -538,6 +539,7 @@ details.spare .kvgrid{font-size:12.5px}
   <section class="view" id="view-settings"></section>
   <section class="view" id="view-search"></section>
   <section class="view" id="view-tag"></section>
+  <section class="view" id="view-list"></section>
   <section class="view" id="view-rules"></section>
 </main>
 
@@ -617,6 +619,7 @@ const state = {
   sub:{},             // 分类视图内的子页签（目前只有 concepts 用）
   search:{ q:'', mode:'hybrid' },
   tag:null,           // 正在按标签筛选的词
+  listMode:null,      // 文章清单页模式：{type:'all'} 或 {type:'day', date:'YYYY-MM-DD'}
   // 列表排序：'desc' = 入库时间最新在前（默认），'asc' = 最早在前。
   // 存在 localStorage 里，刷新后保持用户的选择。
   order:(function(){ try { return localStorage.getItem('myrag_order') || 'desc'; }
@@ -958,7 +961,7 @@ async function renderOverview(){
   const c = s.counts || {};
   const max = Math.max(1, ...(s.last7 || []).map(d => d.count));
   const trend = (s.last7 || []).map(d => `
-    <div class="col" title="${esc(d.date)} 入库 ${d.count} 条">
+    <div class="col" data-act="day" data-date="${attr(d.date)}" title="查看 ${esc(d.date)} 入库的 ${d.count} 条">
       <div class="n">${d.count}</div>
       <div class="bar ${d.count === 0 ? 'zero' : ''}" style="height:${Math.round(d.count / max * 62) + 4}%"></div>
       <div class="d">${esc(d.date.slice(5))}</div>
@@ -1037,12 +1040,52 @@ async function renderOverview(){
     <div class="panel panel-pad">
       <div class="sec-head" style="margin-bottom:6px">
         <h2>最新入库</h2>
-        <span class="sub">最近 10 篇 · 点整行进详情</span>
+        <div class="spacer"></div>
+        <button class="btn" data-act="all-articles">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>全部文章
+        </button>
       </div>
       <div class="latest">${latestRows || '<div class="muted">暂无</div>'}</div>
     </div>`;
   $('#tabReview').hidden = !s.review_pending;
   if (s.review_pending) $('#tabReview').textContent = s.review_pending;
+}
+
+/* ================================================================ 文章清单页（模块 2b） */
+/* 两个入口共用：① 概览「近 7 日」点某天 → 当天入库清单；② 概览「全部文章」→ 全库清单。
+   行样式与「最新入库」一致（标题 + 分类徽章 + 入库日期），点整行进详情。 */
+async function renderArticleList(){
+  const box = $('#view-list');
+  const mode = state.listMode || { type:'all' };
+  box.innerHTML = `<div class="empty">加载中…</div>`;
+
+  const dateParam = (mode.type === 'day' && mode.date)
+    ? 'date=' + encodeURIComponent(mode.date) + '&' : '';
+  let r;
+  try {
+    r = await apiGet('/api/articles?' + dateParam + 'page_size=2000&page=1' + orderArg());
+  } catch(e){ box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+
+  const items = r.items || [];
+  const rows = items.map(a => `
+    <div class="li" data-act="detail" data-id="${attr(a.id)}">
+      <span class="ti">${esc(a.title)}</span>
+      ${catBadge(a.category)}
+      <span class="dt">${esc(d10(a.collected_at))}</span>
+    </div>`).join('');
+
+  const title = mode.type === 'day' ? `入库清单 · ${esc(mode.date)}` : '全部文章';
+  const empty = mode.type === 'day' ? '这一天没有入库文章' : '还没有文章';
+  box.innerHTML = `
+    <div class="sec-head">
+      <h2>${title}</h2>
+      <span class="sub">共 ${r.total} 条 · 点整行进详情</span>
+      <div class="spacer"></div>
+      ${orderSwitch()}
+      <button class="btn" data-act="tab" data-view="overview">回概览</button>
+    </div>
+    ${items.length ? `<div class="panel panel-pad"><div class="latest">${rows}</div></div>`
+      : `<div class="panel panel-pad"><div class="empty">${empty}</div></div>`}`;
 }
 
 /* ================================================================ 模块 3：待复核队列 */
@@ -1729,6 +1772,7 @@ function switchView(v){
   else if (v === 'settings')     renderSettings();
   else if (v === 'rules')        renderRules();
   else if (v === 'tag')          renderTag(state.tag);
+  else if (v === 'list')         renderArticleList();
   else if (v.indexOf('cat-') === 0) renderCategory(v.slice(4));
   window.scrollTo(0, 0);
 }
@@ -2002,6 +2046,7 @@ async function delOne(id){
     loadHealth();
     if (state.view === 'overview') renderOverview();
     if (state.view === 'review') renderReview(false);
+    if (state.view === 'list') renderArticleList();
     if (state.view.indexOf('cat-') === 0) renderCategory(state.view.slice(4));
   } catch(e){ showErr(e); }
 }
@@ -2076,6 +2121,20 @@ document.addEventListener('click', ev => {
       switchView('tag');
       break;
 
+    /* 概览「近 7 日」点某天 → 当天入库清单 */
+    case 'day':
+      ev.preventDefault();
+      state.listMode = { type:'day', date: el.dataset.date };
+      switchView('list');
+      break;
+
+    /* 概览「最新入库」右侧「全部文章」→ 全库清单 */
+    case 'all-articles':
+      ev.preventDefault();
+      state.listMode = { type:'all' };
+      switchView('list');
+      break;
+
     case 'close-drawer':
       closeDrawer();
       break;
@@ -2097,6 +2156,7 @@ document.addEventListener('click', ev => {
       try { localStorage.setItem('myrag_order', state.order); } catch(e){}
       if (state.view === 'tag')                  renderTag(state.tag);
       else if (state.view === 'review')          renderReview(false);
+      else if (state.view === 'list')            renderArticleList();
       else if (state.view.indexOf('cat-') === 0) renderCategory(state.view.slice(4));
       break;
 

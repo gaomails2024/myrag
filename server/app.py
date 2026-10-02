@@ -472,10 +472,11 @@ def _article_row_to_item(r) -> dict:
 def api_articles(category: str | None = None, tag: str | None = None,
                  q: str | None = None, review_flag: int | None = None,
                  queue: str | None = None, order: str = "desc",
-                 page: int = 1, page_size: int = 20):
+                 page: int = 1, page_size: int = 20, date: str | None = None):
     """列表。queue=review → review_flag=1 或 review_due 已到期（工作台模块 3 用）。
 
     order: desc（最新在前，默认）/ asc（最早在前），按**入库时间**排序。
+    date: YYYY-MM-DD，只看某天入库的文章（概览「近 7 日」点某天跳转用）。
     """
     where, params = ["a.status <> 'failed'"], []
     if category:
@@ -494,11 +495,14 @@ def api_articles(category: str | None = None, tag: str | None = None,
     if queue == "review":
         where.append("(a.review_flag = 1 OR (a.review_due IS NOT NULL AND a.review_due <= ?))")
         params.append(db.now_iso())
+    if date:
+        where.append("substr(a.collected_at, 1, 10) = ?")
+        params.append(date)
 
     fsql = " AND ".join(where)
     direction = "ASC" if str(order or "desc").lower() == "asc" else "DESC"
     page = max(1, int(page or 1))
-    page_size = max(1, min(int(page_size or 20), 200))
+    page_size = max(1, min(int(page_size or 20), 2000))
 
     with db.conn_ctx() as conn:
         total = conn.execute(
