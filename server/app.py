@@ -34,7 +34,10 @@ CST = timezone(timedelta(hours=8))
 
 _state = {"started_at": None, "model_ready": False, "warmup": None}
 
-_md = MarkdownIt("commonmark", {"linkify": False, "breaks": False}).enable("table")
+# md → html 渲染器。`breaks: True` = **单个换行就换行**（渲染成 <br>）。
+# 默认的 False 会把同一段里的连续行折叠成一行 —— 图内文字（OCR 注入的
+# `> 图片文字：` 块，一行一个词）因此挤成一坨。空行分隔的段落不受影响。
+_md = MarkdownIt("commonmark", {"linkify": False, "breaks": True}).enable("table")
 _DISPLAY_IMG = re.compile(r"\.\./\.\./media/")
 
 
