@@ -6,8 +6,12 @@
 渲染必须要 playwright，两者不能混。所以分工是：
 **wx_fetch 只负责识别**（发现「有壳无内容」就报 `need_render`），**渲染在这里做**。
 
-产出的 stage 目录结构与 wx_fetch **完全一致**，所以后续步骤（判类 → OCR → 入库）
-一行都不用改 —— 这是复用 `wx_fetch` 里现成的解析与落盘逻辑换来的。
+**解析与落盘不在这里重写**（2026-10-07 根治）：本脚本只负责「开浏览器、拿到渲染后的
+DOM」，正文 / 图片 / 元数据的解析一律调 `wx_fetch.parse_page`，落盘调
+`wx_fetch.save_stage` —— 与静态路径**共用同一份实现**。
+以前这里自己写了一套：正文定位用的是面向普通网站的 `extract_generic`（选出的块里
+一张图都没有），配图下载还漏了微信图床必需的 `Referer` —— 结果走渲染的 9 篇文章
+全部 0 图、图内文字全丢。共用一个实现之后，这两类分叉都不会再发生。
 
 用法：
 
@@ -19,11 +23,8 @@
 """
 
 import argparse
-import hashlib
-import json
 import os
 import pathlib
-import re
 import sys
 import time
 
@@ -31,13 +32,81 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "skill" / "scripts"))
 
 try:
-    import wx_fetch as wf          # 复用它的解析/落盘/常量，不重复实现
+    import wx_fetch as wf          # 复用它的解析 / 落盘 / 常量，不重复实现
 except Exception as e:             # noqa: BLE001
     sys.exit("加载 wx_fetch 失败（它在 skill/scripts/ 下，应与本仓库一起存在）：%s" % e)
 
 
-def render_html(url, wait_ms, timeout_ms):
-    """用真实浏览器打开页面，返回**渲染后**的 HTML。"""
+# 微信把配图放在**正文容器之外**的图片容器里。实测（2026-10-07，小菜园那篇）：
+#   · `#js_content` 里只有 1 张赞赏二维码，正文配图一张都不在；
+#   · 真正的配图在 `.share_media .swiper_item` 里，**每个 item 一张图**，
+#     其中 `data-src` 是原图、里面的 `<img src>` 是压缩版 —— 同一 item 只取一张，
+#     否则同一张图的原图与压缩版会被当成两张。
+#   · 第一个 item 是轮播器的占位展示，与后面某个 item 是同一张图；
+#     按「去掉 query 的路径」去重即可去掉这个重复。
+# 这个列表只作为 `extra_img_urls` 传给 parse_page，**只在正文里一张图都没有时
+# 才会被启用**（理由见 `wx_fetch.parse_page` 的 docstring）。
+# 渲染后的微信页面会把**页面 UI 节点**塞进正文容器里，最重的是**整个赞赏弹窗**
+# （实测 `#js_content` 里嵌着 `#contentAreaWrp.weui-half-screen-dialog__bd`，
+# 内含「名称已清空 / 赞赏金额 / 最低赞赏 ¥0 / 赠予作者其它金额」等一大段弹窗文字）。
+# 只靠字符串剥标签会把它们当正文吃进来 —— 实测多出上百字的弹窗文字。
+# 这些容器都是组件级 class/id，本来就不属于正文；静态路径的正文里没有它们
+# （静态 HTML 里这些节点不在正文容器内），所以只在渲染这一侧剔除。
+_UI_NOISE_SELECTORS = [
+    "#contentAreaWrp",                    # 赞赏弹窗内容区（被塞进了正文容器内）
+    ".wx_bottom_modal_group",             # 底部弹窗组
+    ".wx_bottom_modal_group_container",
+    ".weui-half-screen-dialog",           # 半屏对话框
+    ".reward_pop_panel",                  # 赞赏面板
+    ".dialog-pay",                        # 赞赏对话框
+    ".rich_media_meta",                   # 作者 / 时间 / 公众号 信息条
+    ".rich_media_meta_list",
+    ".rich_media_meta_link",
+    ".author_profile-pay_area",           # 赞赏作者区
+    ".album_con",                         # 「收录于 xx」话题标签
+    ".js_alert_confirm",                  # 确认弹窗
+    ".qr_code_pc_outer",                  # 电脑端二维码推广
+    "script", "style", "noscript",
+]
+
+_DOM_BODY_JS = """
+(selectors) => {
+  const jc = document.querySelector('#js_content')
+          || document.querySelector('#js_image_content');
+  if (!jc) return null;
+  const clone = jc.cloneNode(true);      // 在副本上删，不动真实页面
+  clone.querySelectorAll(selectors.join(',')).forEach(e => e.remove());
+  return clone.innerHTML;
+}
+"""
+
+_DOM_IMAGES_JS = """
+() => {
+  const seen = new Set(), out = [];
+  document.querySelectorAll('.share_media .swiper_item').forEach(it => {
+    const img = it.querySelector('img');
+    const u = it.getAttribute('data-src')
+           || (img && (img.getAttribute('data-src') || img.getAttribute('src')));
+    if (!u || !u.startsWith('http') || u.startsWith('data:')) return;
+    const key = u.split('?')[0];
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(u);
+  });
+  return out;
+}
+"""
+
+
+def render_page(url, wait_ms, timeout_ms):
+    """用真实浏览器打开页面，返回 (渲染后的 HTML, 正文 HTML, 正文容器之外的图片 URL 列表)。
+
+    三个产物都交给 `wx_fetch.parse_page` 解析（与静态路径同一份实现）：
+      · HTML         —— 元数据（标题 / 公众号 / 发布时间）从里面取；
+      · 正文 HTML    —— 用 DOM 精确取出，并顺手剔除页面 UI 节点（见 _UI_NOISE_SELECTORS）；
+      · 图片 URL     —— `extra_img_urls`。静态路径没有 DOM 查询能力，取不到它，
+                       这正是渲染路径必须存在的原因。
+    """
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -63,7 +132,17 @@ def render_html(url, wait_ms, timeout_ms):
                 pass                                # 有长轮询的站点永远不 idle，不致命
             if wait_ms:
                 page.wait_for_timeout(wait_ms)
-            return page.content()
+            # 配图是懒加载：不滚到底，图不会加载、DOM 里的地址也还是占位符
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(1500)
+                page.evaluate("window.scrollTo(0, 0)")
+                page.wait_for_timeout(300)
+            except Exception:                       # noqa: BLE001
+                pass
+            return (page.content(),
+                    page.evaluate(_DOM_BODY_JS, _UI_NOISE_SELECTORS),
+                    page.evaluate(_DOM_IMAGES_JS))
         finally:
             browser.close()
 
@@ -81,83 +160,25 @@ def main():
         sys.exit("只接受 http/https 链接")
 
     t0 = time.perf_counter()
-    html = render_html(url, args.wait, args.timeout)
+    html, body_html, extra_imgs = render_page(url, args.wait, args.timeout)
     elapsed = time.perf_counter() - t0
 
-    title = wf.pick([r'<meta\s+property="og:title"\s+content="([^"]*)"',
-                     r"<title[^>]*>(.*?)</title>"], html)
-    source = wf.pick([r'<meta\s+property="og:site_name"\s+content="([^"]*)"'], html)
-    body = wf.extract_generic(html)
-    md, img_urls, notes = wf.html_to_markdown(body or "")
-
-    if len(md) < wf.MIN_BODY_CHARS:
-        print("✗ 渲染后仍取不到正文（%d 字）—— 页面可能要求登录，或正文在 iframe 里" % len(md))
+    r = wf.parse_page(html, url, extra_img_urls=extra_imgs, body_html=body_html)
+    if not r["ok"]:
+        print("✗ 渲染后仍取不到内容：%s\n  %s" % (r["fail_reason"], r.get("detail") or ""))
         print("  渲染耗时 %.1fs，HTML %d 字节" % (elapsed, len(html)))
         sys.exit(1)
 
-    # ---- 落 stage（结构与 wx_fetch 完全一致，后续步骤不用改）----
-    token = hashlib.md5((wf.canonical_url(url) + str(time.time())).encode()).hexdigest()[:8]
-    sdir = os.path.join(args.stage_root, token)
-    idir = os.path.join(sdir, "img")
-    os.makedirs(idir, exist_ok=True)
+    token, md, img_rel = wf.save_stage(
+        args.stage_root, url, wf.canonical_url(url), r["kind"],
+        r["title"], r["source"], r["author"], r["published_at"],
+        r["md"], r["img_urls"], r["notes"], fetched_by="render")
 
-    slots, dropped = {}, []
-    for i, iu in enumerate(img_urls, 1):
-        try:
-            st, data = wf.http_get(iu, referer=None, binary=True)
-            if st != 200 or len(data) < 100:
-                continue
-            ext = "png"
-            if data[:3] == b"\xff\xd8\xff":
-                ext = "jpg"
-            elif data[:4] == b"GIF8":
-                ext = "gif"
-            elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-                ext = "webp"
-            # L1 过滤：与 wx_fetch 同一套规则（PRD §6.4）
-            if ext == "gif":
-                dropped.append((i, "动图"))
-                continue
-            size = wf._img_size(data)
-            if size:
-                w, h = size
-                if min(w, h) < wf.MIN_IMG_SIDE:
-                    dropped.append((i, "%dx%d 过小" % (w, h)))
-                    continue
-                if max(w, h) / max(1, min(w, h)) > wf.MAX_IMG_RATIO:
-                    dropped.append((i, "%dx%d 长条" % (w, h)))
-                    continue
-            name = "%02d.%s" % (i, ext)
-            with open(os.path.join(idir, name), "wb") as f:
-                f.write(data)
-            slots[i] = name
-        except Exception:                           # noqa: BLE001
-            pass
-
-    def _repl(m):
-        k = int(m.group(1)) + 1          # 占位符是 0-based，slots 是 1-based
-        return "![](img/%s)" % slots[k] if k in slots else ""
-
-    md = re.sub(r"\x00IMG(\d+)\x00", _repl, md)
-    if title:
-        md = "# %s\n\n%s" % (title, md)
-
-    payload = {
-        "url": url, "url_canon": wf.canonical_url(url), "kind": "web_rendered",
-        "title": title, "source": source, "author": None, "published_at": None,
-        "content_md": md, "images": ["img/" + slots[k] for k in sorted(slots)],
-        "embedded": notes,
-    }
-    with open(os.path.join(sdir, "payload.json"), "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False)
-    with open(os.path.join(sdir, "content.md"), "w", encoding="utf-8") as f:
-        f.write(md)
-
-    print("OK  [web_rendered] %d字 %d图 token=%s  渲染 %.1fs"
-          % (len(md), len(slots), token, elapsed))
-    if dropped:
-        print("    - 已过滤 %d 张无信息配图" % len(dropped))
-    print("    stage: %s" % sdir)
+    print("OK  [%s] %d字 %d图 token=%s  渲染 %.1fs"
+          % (r["kind"], len(md), len(img_rel), token, elapsed))
+    if r["notes"]:
+        print("    - 附注：%s" % "、".join(r["notes"]))
+    print("    stage: %s" % os.path.join(args.stage_root, token))
     print("    下一步：判类 → OCR（scripts/ocr_images.py --stage %s）→ 入库" % token)
 
 

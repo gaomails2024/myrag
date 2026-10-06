@@ -575,47 +575,36 @@ def html_to_markdown(body):
     return h.strip(), imgs, notes
 
 
-# ---------------------------------------------------------------- 单条抓取
+# ---------------------------------------------------------------- 解析与落盘（静态/渲染两条路径共用）
 
-def fetch_one(url, stage_root, sleep_before):
-    if sleep_before:
-        time.sleep(sleep_before)
-    t0 = time.time()
-    out = {"url": url, "url_canon": canonical_url(url), "ok": False,
-           "title": None, "source": None, "author": None, "published_at": None,
-           "chars": 0, "images": 0, "embedded": [], "token": None, "fail_reason": None,
-           "kind": None}
+def parse_page(page, url, is_wx=None, extra_img_urls=None, body_html=None):
+    """从页面 HTML 解析出正文 / 图片 / 元数据 —— **静态抓取与渲染抓取共用这一份**。
 
-    # ---- 先判定这条链接该不该抓、按什么抓 ----
-    if not re.match(r"^https?://", url or ""):
-        out["fail_reason"] = "bad_url"
-        out["detail"] = "只接受 http/https 链接"
-        return out
-    if is_file_url(url):
-        out["fail_reason"] = "unsupported_file"
-        out["detail"] = ("文件直链（%s）不适合按网页存：请存它的网页版，或直接下载文件"
-                         % (os.path.splitext(urllib.parse.urlsplit(url).path)[1] or "文件"))
-        return out
+    为什么要抽出来（2026-10-07 事故）：`render_fetch.py` 当初自己另写了一套解析，
+    正文定位用的是面向普通网站的 `extract_generic`。而微信新版页面把配图放在
+    **正文容器之外**的图片容器里（`#js_content` 里一张图都没有），于是渲染兜底
+    路径抓到的 9 篇全部 0 图、图内文字全丢。两条路径共用一份解析，微信再改版
+    也只需改这一个地方。
 
-    host = urllib.parse.urlsplit(url).netloc.lower()
-    is_wx = host.endswith("mp.weixin.qq.com")
-    out["kind"] = "wechat" if is_wx else "web"
+    `extra_img_urls`：**正文容器之外**的图片，由有浏览器的调用方（渲染器）用 DOM
+    精确查出后传进来。**只在正文里一张图都没有时才启用** —— 正文里已有图就说明
+    图就在正文里，再多扫一个来源只会引入重复与误判（同 2026-09-23 合辑误判的教训）。
 
-    try:
-        status, page = http_get(url, referer=(REFERER if is_wx else None))
-    except urllib.error.HTTPError as e:
-        out["fail_reason"] = "network"
-        out["detail"] = "HTTP %s" % e.code
-        return out
-    except Exception as e:
-        out["fail_reason"] = "network"
-        out["detail"] = "%s: %s" % (type(e).__name__, e)
-        return out
+    `body_html`：调用方已经取好的正文 HTML（渲染器有 DOM，取的时候顺手剔掉了页面
+    UI 节点）。渲染后的 `#js_content` 里混着赞赏弹窗、作者信息条等节点，只靠字符串
+    剥标签会把它们的文字当正文吃进来（实测多出 127 字赞赏面板文字）。传了就用它，
+    不传则按下面的顺序自己定位。
 
-    body = None
-    album = None
-    title = None
-    if is_wx:
+    返回 dict：ok / kind / title / source / author / published_at /
+              md / img_urls / notes / fail_reason / detail
+    """
+    if is_wx is None:
+        is_wx = urllib.parse.urlsplit(url).netloc.lower().endswith("mp.weixin.qq.com")
+    kind = "wechat" if is_wx else "web"
+
+    if body_html is not None:
+        body = body_html
+    elif is_wx:
         # **正文优先** —— 顺序不能反（2026-09-24 改回）。
         #
         # 2026-09-23 曾改成「先试合辑，再提正文」：只要页面里出现 picture_page_info_list
@@ -624,20 +613,22 @@ def fetch_one(url, stage_root, sleep_before):
         # js_content 与 picture_page_info_list 在普通文章页里同时存在，正文能提
         # 392/1082 字却一律走合辑；昨天入库的两篇（3733/7015 字）今天重抓也变合辑；
         # 连 0 图的文章也中招（说明纯是字符串命中，跟图片无关）。
-        #
-        # 现在的顺序：先提 #js_content；**只有正文没实质文本时**才试合辑，
-        # 且合辑自身还要求「真的解析出图」（见 extract_image_album 的三道门槛）。
         body = extract_container(page)
-        if _text_len(body) < ALBUM_BODY_MAX_CHARS:
-            album = extract_image_album(page, url, body)
-            if album is not None:
-                body = None
     else:
         body = extract_generic(page)
 
+    # 只有正文没有实质文本时才试合辑，且合辑自身还要求「真的解析出图」
+    # （见 extract_image_album 的三道门槛）。
+    album = None
+    if is_wx and _text_len(body) < ALBUM_BODY_MAX_CHARS:
+        album = extract_image_album(page, url, body)
+        if album is not None:
+            body = None
+
+    title = None
     if album is not None:
         title = album["title"]
-        # 标题不在这里加 —— 下面 `if title:` 会统一加一次，否则会写重
+        # 标题不在这里加 —— 调用方会统一加一次，否则会写重
         head = ""
         if album["desc"]:
             head += album["desc"] + "\n\n"
@@ -645,9 +636,20 @@ def fetch_one(url, stage_root, sleep_before):
                  % len(album["images"]))
         md = head + "".join("\x00IMG%d\x00\n\n" % i for i in range(len(album["images"])))
         img_urls, notes = album["images"], ["图片合辑"]
-        out["kind"] = "wx_album"
+        kind = "wx_album"
     else:
         md, img_urls, notes = html_to_markdown(body or "")
+
+    # 正文里一张图都没有，而调用方在正文容器外找到了图 → 配图被放在了图片容器里
+    # （微信新版页面）。附在正文末尾：正文一字不动，图与图内文字都留得下。
+    if not img_urls and extra_img_urls:
+        img_urls = list(extra_img_urls)
+        md = (md.rstrip()
+              + "\n\n> 文内配图（%d 张；微信把配图放在正文容器之外，按顺序附在末尾）\n\n"
+              % len(img_urls)
+              + "".join("\x00IMG%d\x00\n\n" % i for i in range(len(img_urls))))
+        notes.append("配图取自正文容器外")
+
     body_len = len(md)
 
     # 图片合辑的 md 只有「文案 + 图片占位」，长度天然可能低于门槛，
@@ -656,30 +658,27 @@ def fetch_one(url, stage_root, sleep_before):
     album_ok = album is not None and bool(album["images"])
     if body_len < MIN_BODY_CHARS and not album_ok:
         if looks_like_verify(page):
-            out["fail_reason"] = "verify_page"
-            out["detail"] = ("%s返回了验证/异常页，稍后重试或换网络（不是链接错了）"
-                             % ("微信" if is_wx else "站点"))
-        elif looks_like_spa(page):
+            return {"ok": False, "kind": kind, "fail_reason": "verify_page",
+                    "detail": ("%s返回了验证/异常页，稍后重试或换网络（不是链接错了）"
+                               % ("微信" if is_wx else "站点"))}
+        if looks_like_spa(page):
             # 有壳无内容 = JS 渲染页面。**不是反爬、不是页面坏了**，静态抓取天生拿不到。
             #
             # 微信链接同样会这样（2026-09-24 实测）：直连返回的 2.6MB 页面里正文在
             # JS 变量里，连 `id="js_content"` 都没有 —— 以前 `not is_wx` 把它挡在门外，
             # 于是这类文章只能落 not_article（让用户「换个方式复制链接」，白折腾）。
             # 渲染后正文完整可得（同日实测：同一条链接渲染后正常入库），所以放开。
-            out["fail_reason"] = "need_render"
-            out["detail"] = ("页面是 JS 渲染的（HTML 里只有外壳、正文为空），"
-                             "静态抓取拿不到内容。需用浏览器渲染后重取，"
-                             "见 SKILL.md「JS 渲染页面（need_render）」")
-        elif is_wx:
-            out["fail_reason"] = "not_article"
-            out["detail"] = ("微信域名但不是文章页，也没认出图片合辑；"
-                             "分享卡片请在微信里右上角「用浏览器打开」后重新复制链接")
-        else:
-            out["fail_reason"] = "parse_failed"
-            out["detail"] = ("抓到了页面（%dB）但定位不到正文，"
-                             "可能需登录或页面结构特殊"
-                             % len(page.encode("utf-8", "ignore")))
-        return out
+            return {"ok": False, "kind": kind, "fail_reason": "need_render",
+                    "detail": ("页面是 JS 渲染的（HTML 里只有外壳、正文为空），"
+                               "静态抓取拿不到内容。需用浏览器渲染后重取，"
+                               "见 SKILL.md「JS 渲染页面（need_render）」")}
+        if is_wx:
+            return {"ok": False, "kind": kind, "fail_reason": "not_article",
+                    "detail": ("微信域名但不是文章页，也没认出图片合辑；"
+                               "分享卡片请在微信里右上角「用浏览器打开」后重新复制链接")}
+        return {"ok": False, "kind": kind, "fail_reason": "parse_failed",
+                "detail": ("抓到了页面（%dB）但定位不到正文，可能需登录或页面结构特殊"
+                           % len(page.encode("utf-8", "ignore")))}
 
     title = title or pick([r'<meta\s+property="og:title"\s+content="([^"]*)"',
                            r'var\s+msg_title\s*=\s*["\']([^"\']*)',
@@ -704,8 +703,24 @@ def fetch_one(url, stage_root, sleep_before):
         if iso:
             published = iso
 
-    # 落 stage
-    token = hashlib.md5((out["url_canon"] + str(time.time())).encode()).hexdigest()[:8]
+    return {"ok": True, "kind": kind, "title": title, "source": source,
+            "author": author, "published_at": published,
+            "md": md, "img_urls": img_urls, "notes": notes,
+            "fail_reason": None, "detail": None}
+
+
+def save_stage(stage_root, url, url_canon, kind, title, source, author,
+               published_at, md, img_urls, notes, fetched_by="static"):
+    """把解析结果落成 stage 目录 —— 抓取路径的最后一公里，两条路径共用。
+
+    **配图下载必须带 `Referer: https://mp.weixin.qq.com/`**，否则微信图床 403。
+    这条以前只写在静态路径里，渲染路径自己另写了一份下载（`referer=None`），
+    图就一张都下不来 —— 共用这个函数之后不会再漏。
+
+    返回 (token, md_final, img_rel)。`md_final` 里图片占位符已换成实际落盘路径；
+    被过滤 / 下载失败的图连占位一起删掉，不留下破图引用。
+    """
+    token = hashlib.md5((url_canon + str(time.time())).encode()).hexdigest()[:8]
     sdir = os.path.join(stage_root, token)
     idir = os.path.join(sdir, "img")
     os.makedirs(idir, exist_ok=True)
@@ -768,23 +783,77 @@ def fetch_one(url, stage_root, sleep_before):
         md = "# " + title + "\n\n" + md
 
     payload = {
-        "url": url, "url_canon": out["url_canon"],
-        "kind": out["kind"],
+        "url": url, "url_canon": url_canon,
+        "kind": kind,
         "title": title, "source": source, "author": author,
-        "published_at": published,
+        "published_at": published_at,
         "content_md": md,
         "images": img_rel,
         "embedded": notes,
+        "fetched_by": fetched_by,
     }
     with open(os.path.join(sdir, "payload.json"), "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     with open(os.path.join(sdir, "content.md"), "w", encoding="utf-8") as f:
         f.write(md)
 
+    return token, md, img_rel
+
+
+# ---------------------------------------------------------------- 单条抓取
+
+def fetch_one(url, stage_root, sleep_before):
+    if sleep_before:
+        time.sleep(sleep_before)
+    t0 = time.time()
+    out = {"url": url, "url_canon": canonical_url(url), "ok": False,
+           "title": None, "source": None, "author": None, "published_at": None,
+           "chars": 0, "images": 0, "embedded": [], "token": None, "fail_reason": None,
+           "kind": None}
+
+    # ---- 先判定这条链接该不该抓、按什么抓 ----
+    if not re.match(r"^https?://", url or ""):
+        out["fail_reason"] = "bad_url"
+        out["detail"] = "只接受 http/https 链接"
+        return out
+    if is_file_url(url):
+        out["fail_reason"] = "unsupported_file"
+        out["detail"] = ("文件直链（%s）不适合按网页存：请存它的网页版，或直接下载文件"
+                         % (os.path.splitext(urllib.parse.urlsplit(url).path)[1] or "文件"))
+        return out
+
+    host = urllib.parse.urlsplit(url).netloc.lower()
+    is_wx = host.endswith("mp.weixin.qq.com")
+    out["kind"] = "wechat" if is_wx else "web"
+
+    try:
+        status, page = http_get(url, referer=(REFERER if is_wx else None))
+    except urllib.error.HTTPError as e:
+        out["fail_reason"] = "network"
+        out["detail"] = "HTTP %s" % e.code
+        return out
+    except Exception as e:
+        out["fail_reason"] = "network"
+        out["detail"] = "%s: %s" % (type(e).__name__, e)
+        return out
+
+    r = parse_page(page, url, is_wx=is_wx)
+    out["kind"] = r["kind"]
+    if not r["ok"]:
+        out["fail_reason"] = r["fail_reason"]
+        out["detail"] = r["detail"]
+        return out
+
+    title, source = r["title"], r["source"]
+    author, published = r["author"], r["published_at"]
+    token, md, img_rel = save_stage(
+        stage_root, url, out["url_canon"], r["kind"], title, source, author,
+        published, r["md"], r["img_urls"], r["notes"], fetched_by="static")
+
     out.update({"ok": True, "title": title, "source": source, "author": author,
                 "published_at": published, "chars": len(md),
                 "images": len(img_rel), "token": token,
-                "embedded": notes,
+                "embedded": r["notes"],
                 "elapsed": round(time.time() - t0, 1)})
     return out
 
