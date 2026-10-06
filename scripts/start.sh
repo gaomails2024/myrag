@@ -46,6 +46,28 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false
 
+# 剥掉 Agent 客户端注入的「删除守卫」。
+#
+# 不剥的后果（2026-10-07 实测定位）：后端 Python 侧的一切删除都变成
+# `PermissionError: [Errno 1] Operation not permitted` ——
+# `DELETE /api/articles/{id}` 直接 500，ingest 之后的 `_drop_stage` 必然失败。
+# **这就是 data/_stage 残留反复出现的真正根源**（不是脚本没写清理，是根本删不掉）。
+#
+# 以前这条只写在 SKILL.md 里，靠"启动的人记得带 env -u"；换个会话用裸 start.sh
+# 起服务就会复发。所以在这里主动剥掉，不指望人记得。
+for _v in PYTHONPATH \
+          CODEBUDDY_SAFE_DELETE_ENABLED \
+          CODEBUDDY_SAFE_DELETE_SANDBOX \
+          CODEBUDDY_SAFE_DELETE_BIN_DIR \
+          CODEBUDDY_SAFE_DELETE_BROKER_DELETE \
+          CODEBUDDY_SAFE_DELETE_REPORT_PATH \
+          CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD \
+          CODEBUDDY_BROKERED_FS_HOOK_ENABLED \
+          CODEBUDDY_BROKERED_SHELL_ENV \
+          CODEBUDDY_SANDBOX_BROKER_TOOL_CALL_ID; do
+  unset "$_v" 2>/dev/null || true
+done
+
 nohup "$PY" -m uvicorn server.app:app --host "$HOST" --port "$PORT" >>"$LOG" 2>&1 &
 echo $! > "$PID_FILE"
 

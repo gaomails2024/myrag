@@ -22,19 +22,34 @@ torch
 # ---- 权重首次下载（运行时只读本地缓存）----
 modelscope
 
-# ---- 仅备选模型 bge-large-zh-v1.5 退回 FTS5 方案时需要（PRD §7.1），一期不装 ----
-# jieba
-
 # ---- 检索评测（scripts/eval.py，PRD §8.5）----
 # 只被评测脚本使用，**不在后端运行时依赖里**
 pyyaml
 
 # ---- 配图 OCR（scripts/ocr_images.py，PRD §6.4）----
-# 走 macOS 系统 Vision：本地推理、内容不上传，约 0.4 秒/张。仅 macOS 可用
+# 走 macOS 系统 Vision：**本地推理、内容不上传**，中文识别准，约 0.4 秒/张
+# 仅 macOS 可用；其他平台需换引擎（见 PRD §6.4 的 ocr() 抽象）
 pyobjc-framework-Vision
 pyobjc-framework-Quartz
 
-# ---- JS 渲染抓取（scripts/render_fetch.py）----
-# 非微信链接里的 SPA 页面（wx_fetch 报 need_render）用它渲染后取正文。
-# 装完还要下浏览器引擎（一次性，约 180MB）：.venv/bin/python -m playwright install chromium
+# ---- JS 渲染抓取（scripts/render_fetch.py，§6.2.2）----
+# 非微信链接里的 SPA 页面（wx_fetch 会报 need_render）用它渲染后取正文。
+# 装完还要下浏览器引擎（一次性，约 180MB）：
+#   .venv/bin/python -m playwright install chromium
+# 注：若本机已有 ~/Library/Caches/ms-playwright 缓存，装与缓存**匹配的版本**可免下载
+#     （1.60.x ↔ chromium-1223；版本不匹配会重新下 180MB）
 playwright
+
+# ---- 安全补丁（2026-10-07 `pip-audit` 体检）----
+# urllib3 2.7.0 / multidict 6.8.0 有已知漏洞，钉住已修版本，免得重装环境时又拉回旧的。
+# ⚠️ multidict 必须 <7：aiohttp 声明的约束是 `multidict<7.0,>=4.5`，
+#    实测装 7.0.0 会让 `pip check` 报冲突（2026-10-07 踩过，降到 6.9.1 才对）。
+# 注：pip-audit 同时报了 transformers 的 10 条，**这个是修不了的** ——
+#    上面的 `transformers<5` 就是前人踩坑留下的：FlagEmbedding 读到 5.x 会崩。
+#    除非 FlagEmbedding 支持 5.x，否则这 10 条只能先记着（本地单人工具、权重只来自 ModelScope，
+#    实际暴露面很小）。
+urllib3>=2.8.0
+multidict>=6.9.1,<7.0
+
+# ---- 仅备选模型 bge-large-zh-v1.5 退回 FTS5 方案时需要（PRD §7.1），一期不装 ----
+# jieba
