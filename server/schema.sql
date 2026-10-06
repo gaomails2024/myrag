@@ -130,3 +130,98 @@ CREATE TABLE IF NOT EXISTS rules (
   value      TEXT NOT NULL,          -- 值（数字也存字符串，读取时按 type 解析）
   updated_at TEXT NOT NULL
 );
+
+-- ================================================================
+-- 知识结构：自生长主题（PRD §5.7）
+--
+-- 为什么不用 articles.category：分类是**入库那一刻的一次性判类**、每篇只能进
+-- 一个格子、全库只有 5 档。几百篇以后它只能回答「这篇属于哪一筐」，回答不了
+-- 「这篇在库里和谁是一伙的」。标签更糟：实测 2148 个 tag / 752 篇 = 每个 tag
+-- 平均只覆盖 0.35 篇，而且同义词泛滥（Agent / AI Agent / 智能体 各成一类，
+-- 人机协同 / 人机协作 并存）—— 标签退化成了「每篇自己的词」，不具聚合能力。
+--
+-- 主题是**另一层视角**，与 category 完全解耦：
+--   1) 一篇可同时属于多个主题（带权重），跨主题的关系本身是知识
+--   2) 主题之间有关系：相关 related / 对立 opposed / 依赖 depends
+--   3) 由全库向量层次聚类长出来（不是拍脑袋定的分类），命名由 Agent 给
+--   4) 派生数据：原文与向量都在，随时可整表重建；不重判 category、不迁移任何数据
+-- ================================================================
+CREATE TABLE IF NOT EXISTS themes (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  name          TEXT NOT NULL,        -- 主题名（Agent 命名，用户可改；改了就以用户为准）
+  summary       TEXT,                 -- 一句话说明：这个主题在讲什么、为什么值得看
+  keywords      TEXT DEFAULT '[]',    -- JSON array
+  parent_id     INTEGER REFERENCES themes(id) ON DELETE SET NULL,  -- 树：聚类树的层级
+  level         INTEGER DEFAULT 1,    -- 1 = 一级主题
+  centroid      BLOB,                 -- 1024 维 float32（已 L2 归一化）：增量归类算距离用
+  article_count INTEGER DEFAULT 0,
+  status        TEXT DEFAULT 'active',-- active | retired（被合并或拆分后下线，不删行）
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_themes_parent ON themes(parent_id);
+
+-- 文章 <-> 主题（**一文多主题**，这是与 category 最大的区别）
+--   role   primary（主）/ secondary（次）
+--   status suggested（算法建议、待用户确认）/ confirmed / rejected
+CREATE TABLE IF NOT EXISTS article_themes (
+  article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+  theme_id   INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+  weight     REAL DEFAULT 1.0,       -- 0-1，属于该主题的强度（到质心的相似度）
+  role       TEXT DEFAULT 'primary',
+  status     TEXT DEFAULT 'confirmed',
+  added_at   TEXT NOT NULL,
+  PRIMARY KEY (article_id, theme_id)
+);
+CREATE INDEX IF NOT EXISTS idx_article_themes_theme ON article_themes(theme_id, status);
+
+-- 文章画像向量（**不是** chunk 级向量）：一篇一条，用于聚类与增量归类。
+--
+-- 为什么存 BLOB 自己算距离，不建 vec0 虚表：
+--   1) 752 篇 x 1024 维全量线性扫描是毫秒级（search.py 已有同样先例），
+--      vec0 带来的加速在这里毫无意义；
+--   2) 省掉「TEXT 主键在 vec0 里受不受支持」这个不确定性。
+-- 换 embedding 模型必须整表重算 —— model_id 就是为此存在的。
+CREATE TABLE IF NOT EXISTS article_profiles (
+  article_id TEXT PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,
+  vec        BLOB NOT NULL,          -- float32 x 1024，L2 归一化
+  model_id   TEXT NOT NULL,
+  built_at   TEXT NOT NULL
+);
+
+-- 结构版本（key/value）：当前生效的是哪一档聚类、什么时候建的、用什么模型
+CREATE TABLE IF NOT EXISTS structure_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
+
+-- ================================================================
+-- 标签规范化（PRD §5.8）
+--
+-- 为什么需要：标签是**每篇互斥挑几个**、不是内容打标，所以同一个概念在不同文章上
+-- 会被写成不同写法。实测 `Agent`(33 篇) 与 `AI Agent`(31 篇) 的文章**交集是 0** ——
+-- 它们从没在同一篇上共现，靠「共现度高 = 同义」判断同义在这套数据上完全失效。
+-- 后果：2166 个标签 / 752 篇，平均每个标签只覆盖 0.35 篇，词云上「智能体」「AI Agent」
+-- 「AI智能体」并排出现却指同一件事。
+--
+-- tag_aliases 存「别名 → 规范名」的映射，是这套规范的**唯一事实来源**：
+-- 归并一次、存一次，以后所有入库自动套用（见 app.py 的 ingest 路径），
+-- 判类时也把规范词表注入 Skill 让 Agent 先查词表再选词（减少新增碎片）。
+-- ================================================================
+CREATE TABLE IF NOT EXISTS tag_aliases (
+  alias     TEXT PRIMARY KEY,        -- 旧写法 / 待收敛的写法
+  canonical TEXT NOT NULL,           -- 规范名（用户拍板，不是算法决定）
+  note      TEXT DEFAULT '',         -- 为什么这么合（可选，便于日后回看）
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tag_aliases_canonical ON tag_aliases(canonical);
+
+-- 规范词表之外的**新标签**队列：入库时不在 tag_aliases 里的词会落这里计数。
+-- 不禁止使用（会阻断入库），只是让「又攒出多少碎片」变成一个可见的数字。
+CREATE TABLE IF NOT EXISTS tag_pending (
+  tag        TEXT PRIMARY KEY,
+  seen_count INTEGER DEFAULT 0,      -- 累计出现次数
+  first_seen TEXT,
+  last_seen  TEXT
+);

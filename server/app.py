@@ -5,6 +5,7 @@ Base http://127.0.0.1:8765，全部 JSON。
 **本后端不提供抓取接口** —— 抓取在 Skill 侧脚本完成，后端只接收抓取结果。
 """
 
+import json
 import logging
 import re
 import threading
@@ -36,7 +37,9 @@ _state = {"started_at": None, "model_ready": False, "warmup": None}
 
 # md → html 渲染器。`breaks: True` = **单个换行就换行**（渲染成 <br>）。
 # 默认的 False 会把同一段里的连续行折叠成一行 —— 图内文字（OCR 注入的
-# `> 图片文字：` 块，一行一个词）因此挤成一坨。空行分隔的段落不受影响。
+# `> 图片文字：` 块，一行一个词）因此挤成一坨。用户 2026-10-07 报的
+# 「ocr 连换行都没有」就是这个：数据里换行是好的，渲染时被规则吃掉了。
+# 空行分隔的段落**不受影响**（两种配置都渲染成独立 <p>）。
 _md = MarkdownIt("commonmark", {"linkify": False, "breaks": True}).enable("table")
 _DISPLAY_IMG = re.compile(r"\.\./\.\./media/")
 
@@ -716,6 +719,309 @@ def api_delete(article_id: str, confirm: str = Query(default="")):
 
 
 # ================================================================ 统计
+
+@app.get("/api/structure")
+def api_structure():
+    """知识结构·主题树（PRD §5.7）：领域 > 板块 > 话题，话题下带文章列表。
+
+    数据来自 themes / article_themes（由 `scripts/structure.py apply` 落库），
+    **不实时算挂载** —— 实时挂载要重编码 56 个节点向量（约 20 秒），而页面
+    每切一次页签都跑一遍不可接受。改了目录就重跑 apply（会先自动备份）。
+
+    话题下返回**全部**归属（confirmed + suggested）并标出 role：只返回 confirmed
+    的话，话题显示「31 篇」却只列出 13 条（每篇的主话题只算一次），页面上对不上。
+    """
+    with db.conn_ctx() as conn:
+        meta = {r["key"]: r["value"] for r in conn.execute(
+            "SELECT key, value FROM structure_meta")}
+        if not meta.get("n_topics"):
+            return {"ready": False}
+        themes = conn.execute(
+            "SELECT id, name, summary, keywords, parent_id, level, article_count "
+            "FROM themes WHERE status = 'active' ORDER BY level, id").fetchall()
+        arts = conn.execute(
+            """SELECT t.theme_id, t.article_id, t.weight, t.role, a.title, a.category,
+                      substr(COALESCE(a.published_at, a.collected_at), 1, 10) AS d
+               FROM article_themes t JOIN articles a ON a.id = t.article_id
+               WHERE t.status <> 'rejected' ORDER BY t.weight DESC""").fetchall()
+        unmounted = conn.execute(
+            """SELECT a.id, a.title, a.category,
+                      substr(COALESCE(a.published_at, a.collected_at), 1, 10) AS d
+               FROM articles a
+               WHERE a.status <> 'failed' AND NOT EXISTS (
+                   SELECT 1 FROM article_themes t WHERE t.article_id = a.id)
+               ORDER BY a.id""").fetchall()
+
+    by_id = {}
+    for t in themes:
+        by_id[t["id"]] = {
+            "id": t["id"], "name": t["name"], "summary": t["summary"] or "",
+            "keywords": db.jloads(t["keywords"], []),
+            "parent": t["parent_id"], "level": t["level"],
+            "count": t["article_count"], "articles": [],
+        }
+    for a in arts:
+        node = by_id.get(a["theme_id"])
+        if node is not None:
+            node["articles"].append({
+                "id": a["article_id"], "title": a["title"] or "",
+                "category": a["category"], "date": a["d"],
+                "role": a["role"], "sim": round(a["weight"], 3)})
+
+    tree = []
+    for t in themes:
+        node = by_id[t["id"]]
+        if node["level"] == 1:
+            tree.append(node)
+    for node in by_id.values():          # 把子节点挂到父节点上（两轮，够用三层）
+        if node["parent"] and node["parent"] in by_id:
+            by_id[node["parent"]].setdefault("children", []).append(node)
+
+    return {"ready": True, "built_at": meta.get("catalog_built_at"),
+            "n_articles": int(meta.get("n_articles") or 0),
+            "n_topics": int(meta.get("n_topics") or 0),
+            "tree": tree,
+            "unmounted": [{"id": u["id"], "title": u["title"] or "",
+                           "category": u["category"], "date": u["d"]}
+                          for u in unmounted]}
+
+
+@app.get("/api/tags")
+def api_tags():
+    """标签词云数据：实时统计（752 篇的标签聚合是毫秒级，不需要缓存）。
+
+    刻意**原样返回全部标签、不做归并**：归并涉及"哪个词该并到哪个词"的判断，
+    那是用户的决定（见 tag_aliases 方案），系统擅自合并会掩盖真实的碎片化程度。
+    """
+    with db.conn_ctx() as conn:
+        rows = conn.execute(
+            "SELECT id, title, category, tags FROM articles "
+            "WHERE status <> 'failed' ORDER BY id").fetchall()
+        cats = {c["key"]: c["name"] for c in db.get_categories(conn)}
+    arts = {}
+    counter, members = {}, {}
+    for r in rows:
+        # id 必须带上：前端点文章标题要靠它 openDetail(id)，缺了就是死链
+        arts[r["id"]] = {"id": r["id"], "t": r["title"] or "", "c": r["category"]}
+        for t in db.jloads(r["tags"], []):
+            if not isinstance(t, str) or not t.strip():
+                continue
+            tag = t.strip()
+            counter[tag] = counter.get(tag, 0) + 1
+            members.setdefault(tag, []).append(r["id"])
+    tags = []
+    for tag, n in sorted(counter.items(), key=lambda x: (-x[1], x[0])):
+        dist = {}
+        for aid in members[tag]:
+            k = arts[aid]["c"]
+            dist[k] = dist.get(k, 0) + 1
+        tags.append({"t": tag, "n": n, "c": dist, "ids": members[tag]})
+    total = sum(counter.values())
+    acc, n90 = 0, len(tags)
+    for i, t in enumerate(tags, 1):
+        acc += t["n"]
+        if acc >= total * 0.9:
+            n90 = i
+            break
+    return {"total_tags": len(tags), "total_articles": len(arts),
+            "tags_for_90": n90, "tags": tags, "articles": arts,
+            "categories": cats}
+
+
+# ---------------------------------------------------------------- 标签规范化
+
+def _tag_census(conn):
+    """标签全量统计：{tag: {"ids": set, "by_cat": {}}}，顺带返回文章数。"""
+    rows = conn.execute(
+        "SELECT id, category, tags FROM articles WHERE status <> 'failed'"
+    ).fetchall()
+    out = {}
+    for r in rows:
+        for t in db.jloads(r["tags"], []):
+            if not isinstance(t, str) or not t.strip():
+                continue
+            tag = t.strip()
+            e = out.setdefault(tag, {"ids": set(), "by_cat": {}})
+            e["ids"].add(r["id"])
+            e["by_cat"][r["category"]] = e["by_cat"].get(r["category"], 0) + 1
+    return out, len(rows)
+
+
+def _norm_tag(s: str) -> str:
+    """标签归一化（只用于**判定同名**）：全半角、大小写、空格、连字符、括号差异。"""
+    import re
+    import unicodedata
+    s = unicodedata.normalize("NFKC", s).lower()
+    return re.sub(r"[\s\-_/·、,，（）()]+", "", s)
+
+
+def _tag_families(census: dict) -> list:
+    """词族：同一核心词派生出的众多写法（Agent 家族实测 72 种）。
+
+    向量抓不到跨语言的同义（`Agent` ↔ `智能体` 的短词 cosine 太低），这类只能靠
+    「含同一核心词」圈出来交给人判断。
+    """
+    fams = {}
+    for tag in census:
+        low = tag.lower()
+        if "agent" in low:
+            fams.setdefault("Agent", set()).add(tag)
+        elif "智能体" in tag:
+            fams.setdefault("智能体", set()).add(tag)
+    out = []
+    for core, tags in fams.items():
+        if len(tags) < 3:
+            continue
+        arr = sorted(tags, key=lambda t: (-len(census[t]["ids"]), t))
+        out.append({"core": core, "tags": [
+            {"t": t, "n": len(census[t]["ids"])} for t in arr]})
+    return out
+
+
+@app.get("/api/tag-merge")
+def api_tag_merge():
+    """术语归并页的数据：候选组 + 现有映射 + 待处理新标签。
+
+    两类候选来源不同、可靠性也不同，页面必须分开呈现：
+    · **字面同组**（实时算）：`Agent Skill` / `AgentSkill` / `agent skill` 这种只差
+      大小写空格全半角的，**必然是同一个**，默认勾选。
+    · **语义相似对**（读脚本缓存）：靠标签名的向量相似度找，真同义与「共享某个词
+      但其实两回事」混在一起，**默认不勾选**。实测 `企业转型` + `职业转型` +
+      `组织转型` 会被串成一组 —— 那明明是两件不同的事。
+    """
+    cand_file = config.DATA_DIR / "structure" / "tag_merge_candidates.json"
+    with db.conn_ctx() as conn:
+        census, n_arts = _tag_census(conn)
+        alias_rows = conn.execute(
+            "SELECT alias, canonical, note FROM tag_aliases ORDER BY canonical"
+        ).fetchall()
+        pending = conn.execute(
+            "SELECT tag, seen_count FROM tag_pending ORDER BY seen_count DESC"
+        ).fetchall()
+
+    groups = {}
+    for tag in census:
+        groups.setdefault(_norm_tag(tag), []).append(tag)
+    literal = []
+    for v in groups.values():
+        if len(v) > 1:
+            v.sort(key=lambda t: (-len(census[t]["ids"]), len(t), t))
+            literal.append({"canonical": v[0], "aliases": v[1:],
+                            "counts": {t: len(census[t]["ids"]) for t in v}})
+    literal.sort(key=lambda x: -sum(x["counts"].values()))
+
+    vec_pairs = []
+    if cand_file.is_file():
+        raw = json.loads(cand_file.read_text(encoding="utf-8"))
+        live = set(census)
+        vec_pairs = [p for p in (raw.get("vector_pairs") or [])
+                     if p["a"] in live and p["b"] in live]
+
+    return {
+        "n_articles": n_arts, "total_tags": len(census),
+        "counts": {t: len(e["ids"]) for t, e in census.items()},
+        "literal": literal, "vector_pairs": vec_pairs,
+        "pending": [{"tag": p["tag"], "n": p["seen_count"]} for p in pending],
+        "aliases": [{"alias": a["alias"], "canonical": a["canonical"],
+                     "note": a["note"] or "",
+                     "count": len(census.get(a["alias"], {"ids": ()})["ids"])}
+                    for a in alias_rows],
+        "families": _tag_families(census),
+        "vector_stale": not cand_file.is_file(),
+    }
+
+
+class MergeBody(BaseModel):
+    merges: list = Field(default_factory=list)
+
+
+@app.post("/api/tag-merge/apply")
+def api_tag_merge_apply(body: MergeBody):
+    """按用户确认的清单写回标签（**破坏性**，执行前自动备份）。
+
+    做两件事：
+    ① 把「别名 → 规范名」写进 tag_aliases —— 这张表才是让规范长期生效的地方，
+       以后入库的新文章会自动套用（所以它比 articles.tags 更重要）；
+    ② 就地改写现有文章的 tags：别名换成规范名，同一篇里去重。
+    """
+    if not body.merges:
+        raise HTTPException(400, "没有要合并的条目")
+    plan, mapping = [], {}
+    for m in body.merges:
+        canonical = (m.get("canonical") or "").strip()
+        als = [(a or "").strip() for a in (m.get("aliases") or [])
+               if (a or "").strip()]
+        if not canonical:
+            raise HTTPException(400, "规范名不能为空")
+        if canonical in als:
+            raise HTTPException(400, "规范名不能同时是自己的别名：%s" % canonical)
+        if not als:
+            raise HTTPException(400, "「%s」没有列出要并入的别名" % canonical)
+        for a in als:
+            if a in mapping and mapping[a] != canonical:
+                raise HTTPException(400, "别名「%s」被指向了两个规范名" % a)
+            mapping[a] = canonical
+        plan.append((canonical, als, (m.get("note") or "").strip()))
+
+    backup = db.backup_db("before-tag-merge")
+    changed, merged_tags = 0, 0
+    with db.tx() as conn:
+        census, _ = _tag_census(conn)
+        now = db.now_iso()
+        for canonical, als, note in plan:
+            for a in als:
+                conn.execute(
+                    "INSERT INTO tag_aliases (alias, canonical, note, created_at, updated_at) "
+                    "VALUES (?,?,?,?,?) ON CONFLICT(alias) DO UPDATE SET "
+                    "canonical=excluded.canonical, note=excluded.note, "
+                    "updated_at=excluded.updated_at",
+                    (a, canonical, note, now, now))
+                if a in census:
+                    merged_tags += 1
+            ids = set(census.get(canonical, {"ids": ()})["ids"])
+            for a in als:
+                ids |= census.get(a, {"ids": ()})["ids"]
+            if not ids:
+                continue
+            rows = conn.execute(
+                "SELECT id, tags FROM articles WHERE id IN (%s)"
+                % ",".join("?" * len(ids)), list(ids)).fetchall()
+            for r in rows:
+                old = db.jloads(r["tags"], [])
+                new = []
+                for t in old:
+                    tgt = canonical if t in als else t
+                    if tgt not in new:          # 别名换规范名后可能与已有标签重复
+                        new.append(tgt)
+                if new != old:
+                    conn.execute("UPDATE articles SET tags = ? WHERE id = ?",
+                                 (db.jdumps(new), r["id"]))
+                    changed += 1
+
+    return {"ok": True, "backup": str(backup), "groups": len(plan),
+            "aliases_mapped": len(mapping), "articles_changed": changed,
+            "tags_merged": merged_tags,
+            "note": "已写入 tag_aliases —— 以后入库的文章会自动套用这些映射"}
+
+
+@app.get("/api/tag-vocab")
+def api_tag_vocab():
+    """给 Skill 注入用的**规范词表**：判类时优先从这里挑标签。
+
+    返回规范名 + 已被占用的别名 + 当前高频标签：让 Agent 知道这些词已经有人用，
+    别再造 `AI智能体` 这种第四种写法。
+    """
+    with db.conn_ctx() as conn:
+        rows = conn.execute(
+            "SELECT canonical, COUNT(*) n, GROUP_CONCAT(alias, '｜') al "
+            "FROM tag_aliases GROUP BY canonical ORDER BY n DESC").fetchall()
+        census, _ = _tag_census(conn)
+    top = sorted(census.items(), key=lambda x: -len(x[1]["ids"]))[:60]
+    return {"canonical": [{"term": r["canonical"],
+                           "aliases": (r["al"] or "").split("｜")} for r in rows],
+            "top_existing": [{"tag": t, "n": len(e["ids"])} for t, e in top],
+            "n_canonical": len(rows)}
+
 
 @app.get("/api/stats")
 def api_stats():

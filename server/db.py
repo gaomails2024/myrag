@@ -11,6 +11,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import sqlite_vec
 
@@ -117,6 +118,31 @@ def log_ingest(conn, url, article_id, action, detail) -> None:
         "INSERT INTO ingest_log (url, article_id, action, detail, at) VALUES (?,?,?,?,?)",
         (url, article_id, action, jdumps(detail) if not isinstance(detail, str) else detail, now_iso()),
     )
+
+
+def backup_db(tag: str = "manual") -> Path:
+    """在线一致性备份 wxk.db 到 data/_backup/，返回备份文件路径。
+
+    **为什么必须走 SQLite 的 backup API、不能 cp 文件**：
+    库开着 WAL（schema.sql 里 journal_mode=WAL），主库文件只是某一刻的切片，
+    还挂在 WAL 里没 checkpoint 的新事务不在其中 —— 直接 cp 出来的是**残库**。
+    backup API 是官方在线备份，会把 WAL 一并合并进去，全程不阻塞读写。
+
+    涉及用户真实数据的写操作（重建表、迁移、改分类）之前必须先调它。
+    """
+    d = config.DATA_DIR / "_backup"
+    d.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(CST).strftime("%Y%m%d-%H%M%S")
+    dest = d / ("wxk-%s-%s.db" % (stamp, tag))
+    # 这里不加载 sqlite-vec：backup 是页级复制，不需要任何扩展
+    src = sqlite3.connect(str(config.DB_PATH), timeout=30.0)
+    dst = sqlite3.connect(str(dest))
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
+    return dest
 
 
 def counts(conn) -> dict:

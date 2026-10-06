@@ -618,6 +618,64 @@ def chunk_and_index(conn, article_id: str, md: str):
             "tokens": sum(c["token_count"] for c in chunks)}
 
 
+# ================================================================ 标签规范化
+#
+# 为什么入库时必须做这一步：规范存在 tag_aliases 里（由工作台「术语归并」页写入），
+# 但**只对存量生效**。不在这里卡一道，Agent 下次判类又会写 `AI Agent` / `智能体`
+# 这类写法，半年后攒回 2000 多个标签，归并白做。
+#
+# 顺带登记 tag_pending（沉淀机制 ④）：不在规范词表里的新标签**不禁止使用**
+# （会阻断入库），只让它变成一个可见的数字，提醒该归并了。
+_MAP_CACHE = {"n": -1, "m": {}}
+
+
+def _alias_map(conn) -> dict:
+    """别名 → 规范名，带进程内缓存：映射表极少变动，每次入库全表查白付一次 IO。"""
+    n = conn.execute("SELECT COUNT(*) c FROM tag_aliases").fetchone()["c"]
+    if _MAP_CACHE["n"] != n:
+        _MAP_CACHE["m"] = {r["alias"]: r["canonical"] for r in conn.execute(
+            "SELECT alias, canonical FROM tag_aliases")}
+        _MAP_CACHE["n"] = n
+    return _MAP_CACHE["m"]
+
+
+def normalize_tags(conn, tags) -> tuple:
+    """标签列表 → 套用规范名后的列表，并登记未见过的新标签。返回 (列表, 统计)。
+
+    去重保持原顺序。登记只算**真正的新词**：已经是规范名的、或存量文章里
+    用过的，都不算 —— 否则队列会被存量标签灌满，失去意义。
+    """
+    amap = _alias_map(conn)
+    out, mapped = [], 0
+    for raw in (tags or []):
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        t = raw.strip()
+        t2 = amap.get(t, t)
+        if t2 != t:
+            mapped += 1
+        if t2 not in out:
+            out.append(t2)
+    fresh = set()
+    if out:
+        known = set()
+        for r in conn.execute("SELECT tags FROM articles WHERE status <> 'failed'"):
+            known.update(db.jloads(r["tags"], []))
+        canons = set(amap.values())
+        now = db.now_iso()
+        for t in out:
+            if t in canons or t in known:
+                continue
+            fresh.add(t)
+        for t in sorted(fresh):
+            conn.execute(
+                "INSERT INTO tag_pending (tag, seen_count, first_seen, last_seen) "
+                "VALUES (?,1,?,?) ON CONFLICT(tag) DO UPDATE SET "
+                "seen_count = seen_count + 1, last_seen = excluded.last_seen",
+                (t, now, now))
+    return out, {"mapped": mapped, "new": len(fresh)}
+
+
 # ================================================================ 主流程
 
 def _default_review_due():
@@ -691,6 +749,11 @@ def do_ingest(conn, req: dict) -> dict:
     if "repo_card" in features:
         review_due = req.get("review_due") or _default_review_due()
 
+    # 标签来源：req 优先（手工补录/接口直接传），否则取 stage payload ——
+    # Skill 抓取流程把标签放在 payload 里，只认 req 会让它们被静默丢掉。
+    _raw_tags = req.get("tags") or payload.get("tags") or []
+    _tags_out, _tag_stat = normalize_tags(conn, _raw_tags)
+
     conn.execute(
         """INSERT INTO articles
            (id, category, title, source, author, published_at, collected_at, url, url_canon,
@@ -698,7 +761,7 @@ def do_ingest(conn, req: dict) -> dict:
             created_at, updated_at)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'ok', ?, ?)""",
         (article_id, category, title, source, author, published_at, now, url, url_canon,
-         req.get("summary") or "", db.jdumps(req.get("tags") or []), raw_path,
+         req.get("summary") or "", db.jdumps(_tags_out), raw_path,
          db.jdumps(attachments), review_flag, review_due, now, now))
 
     if "repo_card" in features:
@@ -745,7 +808,9 @@ def do_ingest(conn, req: dict) -> dict:
 
     return {"ok": True, "dup": False, "id": article_id, "fail_reason": None,
             "chunks": idx["chunks"], "chars": len(md), "attachments": len(attachments),
-            "warnings": idx["warnings"]}
+            "warnings": idx["warnings"],
+            # 标签规范化结果：mapped = 套用了映射的个数，new = 新登记进待归并队列的
+            "tags_mapped": _tag_stat["mapped"], "tags_new": _tag_stat["new"]}
 
 
 def do_ingest_text(conn, req: dict) -> dict:

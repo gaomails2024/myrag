@@ -6,7 +6,7 @@
 本脚本按新规则重算，正文从 data/raw/<id>.md 读回 —— 原文与配图在 PRD §4 里
 是「底本，只写不改」，所以这里也只读；向量与词权重全部可由原文重建。
 
-用法（在项目根下执行）：
+用法（在系统根 /Users/jl/Documents/MyRag 下）：
     .venv/bin/python scripts/reindex.py                    # 全部文章
     .venv/bin/python scripts/reindex.py T-20260101-01 ...  # 指定若干篇
 """

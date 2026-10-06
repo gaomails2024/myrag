@@ -120,15 +120,23 @@ svg{flex:none; display:block}
   z-index:35;
 }
 .tabs::-webkit-scrollbar{width:0}
+/* 页签栏（= 左侧主目录）：文字**一直**是棕色，不加粗、无圆角框、
+   悬停反白、任何状态都不带下划线（用户 2026-10-07 要求）。
+   选中态只用左侧棕条标记，不用蓝底也不加粗。 */
 .tab{
   display:flex; align-items:center; gap:8px; padding:9px 11px;
-  border-radius:var(--radius-s); cursor:pointer; text-align:left;
+  border-radius:0; cursor:pointer; text-align:left;
   color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  background:none; border:0; font-size:13px; width:100%;
-  transition:color .16s cubic-bezier(.2,.7,.3,1);
+  background:none; border:0; font-size:13px; width:100%; font-weight:400;
+  text-decoration:none;
+  box-shadow:inset 2px 0 0 transparent;
+  transition:color .16s cubic-bezier(.2,.7,.3,1), background .16s;
 }
-.tab:hover{color:var(--text); background:var(--panel-2)}
-.tab.on{color:var(--text); background:var(--panel-3); font-weight:700}
+.tab:hover{color:var(--text); background:#fff}     /* 悬停反白 + 字加深 */
+.tab:focus,.tab:active{outline:none}
+.tab.on{color:var(--text); background:transparent; font-weight:400;
+  box-shadow:inset 2px 0 0 var(--text-2)}          /* 选中：左侧灰褐竖条，不加粗不铺底 */
+.tab .ico{opacity:.75}
 .tab .ico{flex:none}
 .tab .badge-n{margin-left:auto}
 .tab .badge-n{
@@ -484,6 +492,162 @@ details.spare .kvgrid{font-size:12.5px}
   .tab{font-size:12px; padding:8px 9px; gap:6px}
   .tab .muted{display:none}   /* 小屏先让位的是计数，分类名更重要 */
 }
+
+/* ---- 模块 9/10：逻辑主题树 + 标签词云 ----
+   配色一律取上面的莫兰迪色板（--c0..--c5）与纸灰底，不另起一套视觉：
+   早先独立页用了高饱和蓝绿橙，跟工作台并排看就是两套产品。 */
+.tw2{display:flex;gap:18px;align-items:flex-start}
+.tw2-side{width:250px;flex:0 0 250px;position:sticky;top:64px}
+.tw2-main{flex:1;min-width:0}
+.tw2-find{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-s);
+  background:var(--card-surface);font:inherit;font-size:13px;color:var(--text);margin-bottom:10px}
+.tw2-nav{border:1px solid var(--border);border-radius:var(--radius);padding:8px 6px;
+  background:var(--card-surface);max-height:calc(100vh - 190px);overflow-y:auto}
+.tw2-n{margin:1px 0}
+.tw2-n>a{align-items:center}
+/* 折叠标记：+ / −（原为 ▸/▾，用户要求改成加减号）。字号 17px —— 符号的视觉面积
+   比三角小，得补一档才看得清；热区再用伪元素向外扩 8px（用户两次反馈「太小、
+   必须精确点中」）。 */
+.tw2-tw{display:inline-flex;align-items:center;justify-content:center;position:relative;
+  width:22px;height:22px;font-size:17px;font-weight:600;line-height:1;color:var(--text-3);
+  cursor:pointer;flex:0 0 22px;border-radius:0}
+.tw2-tw::before{content:'';position:absolute;left:-8px;right:-8px;top:-9px;bottom:-9px}
+.tw2-tw:hover{color:var(--text);background:#fff}
+.tw2-tw.leaf{cursor:default}
+.tw2-tw.leaf::before{display:none}
+.tw2-tw.open{color:var(--text-2)}
+/* 左侧树：一律不加粗、无圆角、棕字、悬停反白、不带下划线；
+   当前节点也不铺蓝底，只用左侧棕色竖条标记（用户 2026-10-07） */
+.tw2-row{display:flex;align-items:center;gap:6px;padding:3px 4px;border-radius:0;
+  color:var(--text-2);text-decoration:none;font-size:13px;font-weight:400;
+  box-shadow:inset 2px 0 0 transparent}
+.tw2-row:hover{background:#fff;color:var(--text);text-decoration:none}
+.tw2-row:focus,.tw2-row:active{outline:none;text-decoration:none}
+.tw2-n[style*="--d:0"]>.tw2-row{font-weight:400;font-size:13px}
+.tw2-n[style*="--d:1"]>.tw2-row{font-weight:400}
+/* 层级靠三件事说清楚：缩进线、圆点大小/颜色、字重 */
+.tw2-kids{margin-left:12px;padding-left:4px}   /* 原先有 border-left 竖线，已按要求去掉 */
+.tw2-n.on>.tw2-row{background:transparent;color:var(--text);
+  box-shadow:inset 2px 0 0 var(--text-2)}   /* 当前节点：深字 + 左侧灰褐竖条 */
+.tw2-n.on>.tw2-row:hover{color:var(--text)}
+.tw2-n.on>.tw2-row .tw2-c{color:var(--text-2)}
+.tw2-n[data-tname] > .tw2-row > .tw2-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tw2-n[style*="--d:0"] > a{font-weight:600;font-size:13.5px}
+.tw2-n[style*="--d:1"] > a{font-weight:500}
+.tw2-n.inpath > .tw2-row{color:var(--text-2)}
+.tw2-n.on > .tw2-row{background:transparent}
+
+.tw2-c{font-size:11px;color:var(--text-3);flex:0 0 auto;min-width:22px;text-align:right}
+.crumb2{font-size:12.5px;color:var(--text-3);margin-bottom:6px}
+.crumb2 b{font-weight:400;color:var(--text)}
+.crumb2 a{color:var(--text-2);text-decoration:none}
+.crumb2 a:hover{text-decoration:none;color:var(--text)}
+.crumb2 span{margin:0 5px;color:var(--border-2)}
+.tw2-h{margin:0 0 6px;font-size:21px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.tw2-tag{font-size:12px;font-weight:400;color:var(--text-3);background:var(--panel-2);
+  padding:2px 8px;border-radius:20px}
+.tw2-sum{margin:0 0 10px;color:var(--text-2);max-width:820px;font-size:13.5px}
+.tw2-subs{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));margin:14px 0 6px}
+.tw2-card{background:var(--card-surface);border:1px solid var(--border);border-radius:0;
+  padding:11px 13px;cursor:pointer;transition:border-color .12s}
+.tw2-card:hover{border-color:var(--hover-line)}
+.tw2-card.c1{border-left:3px solid var(--c0)}
+.tw2-card.c2{border-left:3px solid var(--c1)}
+.tw2-card.c3{border-left:3px solid var(--c2)}
+.tw2-cn{font-size:14px;font-weight:600;display:flex;justify-content:space-between;gap:8px}
+.tw2-cc{font-size:11.5px;color:var(--text-3);font-weight:400;flex:0 0 auto}
+.tw2-cs{font-size:12.5px;color:var(--text-2);margin-top:3px}
+.tw2-unm{margin:16px 0;padding:11px 13px;background:var(--warn-soft);border:1px solid var(--border);
+  border-radius:var(--radius-s);font-size:12.5px;color:var(--text-2)}
+.tw2-unm b{color:var(--text);margin-right:8px}
+.tw2-unm>div{margin-top:7px;display:flex;flex-wrap:wrap;gap:6px}
+.tw2-unm a{font-size:12px;color:var(--text);background:var(--card-surface);
+  border:1px solid var(--border);border-radius:20px;padding:2px 9px;text-decoration:none}
+.tw2-unm a:hover{border-color:var(--hover-line)}
+.tw2-ah{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-2);margin:18px 0 7px}
+.tw2-ah span{color:var(--text-3);font-size:11.5px}
+.tw2-ah .seg{margin-left:auto}
+.tw2-ah .seg+.seg{margin-left:0}
+.tw2-tb{width:100%;border-collapse:collapse;background:var(--card-surface);
+  border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.tw2-tb th{font-size:11.5px;color:var(--text-3);text-align:left;font-weight:500;padding:8px 12px;
+  border-bottom:1px solid var(--border);background:var(--panel-2)}
+.tw2-tb td{padding:8px 12px;border-bottom:1px solid var(--hair);font-size:13px;vertical-align:top}
+.tw2-tb tr:last-child td{border-bottom:none}
+.tw2-tb tr:hover td{background:var(--panel-2)}
+.ta-t a{color:var(--text);text-decoration:none;font-weight:500}
+.ta-t a:hover{text-decoration:underline}
+.ta-sub{font-size:10.5px;color:var(--text-3);border:1px solid var(--border);border-radius:4px;
+  padding:0 5px;margin-left:7px;white-space:nowrap}
+.ta-m,.ta-d{color:var(--text-3);font-size:11.5px;white-space:nowrap}
+.ta-s{color:var(--text-3);font-size:11.5px;text-align:right;white-space:nowrap}
+.cl-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px}
+.cl-meta{font-size:12.5px;color:var(--text-2)}
+.cl-meta b{color:var(--text)}
+.cl-ctl{display:flex;align-items:center;gap:5px;margin-left:auto;flex-wrap:wrap}
+/* 分类筛选 / 词数切换：字比工作台默认的 .seg 小一号（用户 2026-10-07 要求） */
+/* 注意选择器：分类/词数按钮本身就是 .seg（不是 .seg 里的 button） */
+.cl-ctl button.seg{font-size:12px;padding:3px 9px;border-radius:5px}
+.cl-meta{font-size:12px}
+.cl-sep{width:1px;height:16px;background:var(--border);margin:0 3px}
+.cl-hint{font-size:12.5px;color:var(--text-2);background:var(--card-surface);
+  border:1px solid var(--border);border-radius:var(--radius-s);padding:9px 12px;margin-bottom:12px}
+.cl-wrap{display:flex;gap:16px;align-items:flex-start}
+.cl-wrap canvas{flex:1;min-width:0;background:var(--card-surface);border:1px solid var(--border);
+  border-radius:var(--radius)}
+.cl-side{width:300px;flex:0 0 300px;background:var(--card-surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:12px 14px;max-height:520px;overflow-y:auto}
+.cl-sh{margin:0 0 3px;font-size:16px;display:flex;align-items:baseline;gap:8px}
+.cl-sh span{font-size:11.5px;color:var(--text-3);font-weight:400}
+.cl-sd{margin-bottom:9px}
+.cl-a{padding:7px 0;border-bottom:1px solid var(--hair);cursor:pointer}
+.cl-a:last-child{border-bottom:none}
+.cl-at{font-size:12.5px}
+.cl-a:hover .cl-at{text-decoration:underline}
+.cl-am{font-size:11px;color:var(--text-3);margin-top:1px}
+
+/* ---- 模块 11：术语归并 ---- */
+.tm-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.tm-meta{font-size:13px;color:var(--text-2)}
+.tm-meta b{color:var(--text)}
+.tm-bar .btn{margin-left:0}
+.tm-bar .btn.primary{margin-left:auto}
+.tm-prev{font-size:12.5px;color:var(--text-2);background:var(--card-surface);
+  border:1px solid var(--border);border-radius:var(--radius-s);padding:9px 12px;margin-bottom:14px}
+.tm-prev b{color:var(--text)}
+.tm-warn{margin:0 0 14px;padding:9px 12px;background:var(--warn-soft);
+  border:1px solid var(--border);border-radius:var(--radius-s);font-size:12.5px}
+.tm-sec{margin-bottom:20px}
+.tm-sh{display:flex;align-items:baseline;gap:10px;font-size:13.5px;font-weight:600;
+  padding-bottom:7px;border-bottom:1px solid var(--border);margin-bottom:9px}
+.tm-sh span{margin-left:auto;font-size:11.5px;font-weight:400;color:var(--text-3)}
+.tm-rows{display:flex;flex-direction:column;gap:4px}
+.tm-item,.tm-row{display:flex;align-items:center;gap:7px;padding:6px 10px;border-radius:8px;
+  background:var(--card-surface);border:1px solid var(--border);font-size:13px;cursor:pointer}
+.tm-item:hover{border-color:var(--hover-line)}
+.tm-item.on{border-color:var(--c1);background:var(--c1-soft)}
+.tm-item input,.tm-tag input{margin:0;flex:0 0 auto}
+.tm-cn{font-weight:600;min-width:120px;max-width:260px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;padding:1px 3px;border-radius:4px}
+.tm-cn[contenteditable]:hover{background:var(--panel-2)}
+.tm-cn[contenteditable]:focus{outline:1px solid var(--accent-line);background:var(--panel-2)}
+.tm-ar{color:var(--text-3);flex:0 0 auto}
+.tm-al{color:var(--text-2);background:var(--panel-2);border-radius:5px;padding:1px 7px;
+  font-size:12px;display:inline-flex;gap:4px;align-items:center}
+.tm-al i,.tm-tag i{font-style:normal;font-size:10.5px;color:var(--text-3)}
+.tm-sim{margin-left:auto;font-size:11px;color:var(--text-3);flex:0 0 auto}
+.tm-fam{margin-bottom:12px}
+.tm-fn{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--text-2);margin-bottom:6px}
+.tm-fn .btn{margin-left:auto;font-size:11.5px;padding:3px 9px}
+.tm-tags{display:flex;flex-wrap:wrap;gap:5px}
+.tm-tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 8px;
+  border-radius:20px;background:var(--card-surface);border:1px solid var(--border);cursor:pointer}
+.tm-tag.on{background:var(--c1-soft);border-color:var(--c1)}
+@media (max-width:1100px){
+  .tw2,.cl-wrap{flex-direction:column}
+  .tw2-side,.cl-side{width:100%;flex:1 1 auto}
+  .tw2-nav{max-height:260px}
+}
 </style>
 </head>
 <body>
@@ -528,6 +692,15 @@ details.spare .kvgrid{font-size:12.5px}
   <button class="tab" data-act="tab" data-view="search" id="tabSearch" hidden>
     <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>检索结果
   </button>
+  <button class="tab" data-act="tab" data-view="tree">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M12 4v4M12 8H6v3M12 8h6v3M6 11v3h6v-3M18 11v3"/><rect x="3.5" y="16.5" width="6" height="4"/><rect x="14.5" y="16.5" width="6" height="4"/></svg>逻辑主题树
+  </button>
+  <button class="tab" data-act="tab" data-view="tagcloud">
+    <svg class="ico" viewBox="0 0 24 24"><circle cx="8" cy="8" r="3.2"/><circle cx="16.5" cy="10" r="2.4"/><circle cx="11" cy="16.5" r="3.6"/><path d="M8 8h6M8 8v8.5M16.5 10l-3 4"/></svg>标签词云
+  </button>
+  <button class="tab" data-act="tab" data-view="tagmerge">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M4 7h7M4 12h5M4 17h7"/><path d="m14 8 3-3 3 3M17 5v12"/><path d="M14 16h6"/></svg>术语归并
+  </button>
 </nav>
 
 <main>
@@ -541,6 +714,9 @@ details.spare .kvgrid{font-size:12.5px}
   <section class="view" id="view-tag"></section>
   <section class="view" id="view-list"></section>
   <section class="view" id="view-rules"></section>
+  <section class="view" id="view-tree"></section>
+  <section class="view" id="view-tagcloud"></section>
+  <section class="view" id="view-tagmerge"></section>
 </main>
 
 <!-- ============================================================ 详情抽屉（模块 8） -->
@@ -1773,10 +1949,544 @@ function switchView(v){
   else if (v === 'rules')        renderRules();
   else if (v === 'tag')          renderTag(state.tag);
   else if (v === 'list')         renderArticleList();
+  else if (v === 'tree')         renderTree();
+  else if (v === 'tagcloud')     renderTagCloud();
+  else if (v === 'tagmerge')     renderTagMerge();
   else if (v.indexOf('cat-') === 0) renderCategory(v.slice(4));
   window.scrollTo(0, 0);
 }
 
+/* ================================================================ 模块 9：逻辑主题树（PRD §5.7）
+
+   形态是「目录」而不是「划分」：领域 > 板块 > 话题，上下级靠语义从属。
+   早期版本把库互斥切成 20 簇，20 个里有 8 个在讲同一件事（473 篇 = 63%），
+   看不到逻辑 —— 原因是划分靠相似度切边界，而主题是连续谱，边界必然模糊。 */
+let TREE = null, TREE_CUR = null, TREE_SORT = 'sim';
+let TREE_OPEN = new Set(), TREE_SEARCHING = false;
+
+async function renderTree(force){
+  const box = $('#view-tree');
+  if (TREE && !force) { paintTree(box); return; }
+  box.innerHTML = '<div class="empty">正在读取主题结构…</div>';
+  try {
+    const d = await api('/api/structure');
+    if (!d.ready){
+      box.innerHTML = '<div class="empty">还没有生效的主题结构。'
+        + '先跑 <code>scripts/structure.py mount</code> 挂载、'
+        + '确认目录后再 <code>apply</code> 落库。</div>';
+      return;
+    }
+    TREE = d;
+    TREE_CUR = d.tree[0] ? d.tree[0].id : null;
+    paintTree(box);
+  } catch(e){ box.innerHTML = '<div class="empty">读取失败：' + esc(e.message || e) + '</div>'; }
+}
+
+function treeIndex(node, out){
+  out[node.id] = node;
+  (node.children || []).forEach(c => treeIndex(c, out));
+  return out;
+}
+
+function paintTree(box){
+  const map = treeIndex(TREE.tree[0], {});
+  // 一棵树里可能有多个领域，先全索引一遍
+  TREE.tree.forEach(d => { if (d.id !== TREE.tree[0].id) treeIndex(d, map); });
+  const cur = map[TREE_CUR] || TREE.tree[0];
+  if (!cur){ box.innerHTML = '<div class="empty">结构为空</div>'; return; }
+
+  const crumb = [];
+  (function up(n){ crumb.unshift(n); if (n.parent && map[n.parent]) up(map[n.parent]); })(cur);
+
+  const nav = treeNavHtml(cur, map);
+  const kids = (cur.children || []).map(c => treeCardHtml(c, map)).join('');
+  const arts = cur.articles.length ? articleTableHtml(cur, cur.articles) : '';
+  const unmounted = (TREE.unmounted || []).length ? unmountedHtml(TREE.unmounted) : '';
+
+  box.innerHTML =
+    '<div class="tw2">' +
+      '<div class="tw2-side">' +
+        '<input class="tw2-find" id="treeFind" placeholder="找话题（如：FDE、RAG）">' +
+        nav +
+      '</div>' +
+      '<div class="tw2-main">' +
+        '<div class="crumb2">' + crumb.map((n,i) => i === crumb.length-1
+          ? '<b>' + esc(n.name) + '</b>' : '<a href="#" data-tnode="' + n.id + '">' + esc(n.name) + '</a>')
+          .join('<span>›</span>') + '</div>' +
+        '<h2 class="tw2-h">' + esc(cur.name) +
+          '<span class="tw2-tag">' + (cur.level === 1 ? '领域' : cur.level === 2 ? '板块' : '话题') +
+          ' · ' + cur.count + ' 篇</span></h2>' +
+        (cur.summary ? '<p class="tw2-sum">' + esc(cur.summary) + '</p>' : '') +
+        (cur.keywords && cur.keywords.length
+          ? '<div class="chips">' + cur.keywords.map(k => '<span class="chip">' + esc(k) + '</span>').join('') + '</div>'
+          : '') +
+        (kids ? '<div class="tw2-subs">' + kids + '</div>' : '') +
+        (unmounted ? unmounted : '') +
+        arts +
+      '</div>' +
+    '</div>';
+
+  box.querySelectorAll('[data-tnode]').forEach(el => el.onclick = ev => {
+    ev.preventDefault(); TREE_CUR = +el.dataset.tnode; paintTree(box); window.scrollTo(0,0);
+  });
+  box.querySelectorAll('[data-topen]').forEach(el => el.onclick = ev => {
+    ev.preventDefault();
+    TREE_CUR = +el.dataset.topen;
+    TREE_OPEN.add(TREE_CUR);        // 进入一个节点就顺手展开它，层级关系看得见
+    paintTree(box); window.scrollTo(0, 0);
+  });
+  box.querySelectorAll('[data-ttog]').forEach(el => el.onclick = ev => {
+    ev.preventDefault(); ev.stopPropagation();
+    const id = +el.dataset.ttog;
+    if (TREE_OPEN.has(id)) TREE_OPEN.delete(id); else TREE_OPEN.add(id);
+    paintTree(box);                   // 只折叠/展开，不切换当前节点
+  });
+  box.querySelectorAll('[data-tart]').forEach(el => el.onclick = ev => {
+    ev.preventDefault(); openDetail(el.dataset.tart);
+  });
+  box.querySelectorAll('[data-tsort]').forEach(el => el.onclick = () => {
+    TREE_SORT = el.dataset.tsort; paintTree(box);
+  });
+  const find = $('#treeFind');
+  if (find) find.oninput = () => filterTree(box, find.value);
+}
+
+/* 左侧树：默认全收起，只在进入某个节点时展开它那条路径（用户 2026-10-07 要求：
+   「左边类做成折叠的，层级要更清晰」）。TREE_OPEN 记展开状态，跨渲染保留。 */
+/* 搜索：按主题（名称+关键词）匹配。命中的节点**自动展开祖先链** ——
+   否则匹配项藏在收起的父节点里，用户会以为"搜不到"。
+   不改 DOM 的 display（收起状态由 TREE_OPEN 渲染），改的是「哪些节点展开」。 */
+function filterTree(box, raw){
+  const q = (raw || '').trim().toLowerCase();
+  if (!q){
+    TREE_OPEN.clear();
+    TREE_SEARCHING = false;
+    paintTree(box);
+    const f = $('#treeFind');
+    if (f){ f.value = ''; f.focus(); }
+    return;
+  }
+  const hits = new Set(), open = new Set();
+  (function walk(nodes, ancestors){
+    nodes.forEach(n => {
+      const hay = (n.name + ' ' + (n.keywords || []).join(' ')).toLowerCase();
+      const self = hay.indexOf(q) >= 0;
+      if (self){
+        hits.add(n.id);
+        ancestors.forEach(a => open.add(a));
+        // 命中的是**容器**（领域/板块的 keywords 里也有该词，比如「AI 技术」的
+        // keywords 含 RAG）时必须展开它自己，否则命中项下面一片空白、看着像没搜到。
+        if ((n.children || []).length) open.add(n.id);
+      }
+      walk(n.children || [], self ? ancestors : ancestors.concat(n.id));
+    });
+  })(TREE.tree, []);
+  TREE_SEARCHING = true;
+  TREE_OPEN = open;                    // 只保留「命中项 + 其祖先」的展开集合
+  paintTree(box);
+  // 再把非命中分支藏掉（可见 = 自己命中，或有子节点可见），从根往下算
+  const apply = list => list.forEach(el => {
+    const kids = [...el.querySelectorAll(':scope > .tw2-kids > .tw2-n')];
+    apply(kids);                        // 递归要传数组：kids.forEach(apply) 会把元素当 list
+    const self = hits.has(+el.dataset.tid);
+    const kidVis = kids.some(k => k.style.display !== 'none');
+    el.style.display = (self || kidVis) ? '' : 'none';
+  });
+  apply([...box.querySelectorAll('.tw2-nav > .tw2-n')]);
+  const f = $('#treeFind');
+  if (f){ f.value = raw; f.focus(); f.setSelectionRange(raw.length, raw.length); }
+}
+
+function treeNavHtml(cur, map){
+  // 祖先链始终展开（要看得见自己在哪），但**不含当前节点自己** ——
+  // 含了它会把「收起当前节点」这个操作立刻撤销掉，表现为点箭头收不起来（2026-10-07 实测）。
+  const path = new Set();
+  (function up(n){ if (n.parent && map[n.parent]){ path.add(n.parent); up(map[n.parent]); } })(cur);
+  // 搜索中**不要**强制展开当前位置的祖先：那会覆盖搜索算出的展开集合，
+  // 结果是「搜 RAG 却什么都看不到」（2026-10-07 实测）。
+  if (!TREE_SEARCHING) path.forEach(id => TREE_OPEN.add(id));
+
+  const walk = (nodes, depth) => nodes.map(n => {
+    const kids = n.children || [];
+    const open = TREE_OPEN.has(n.id);
+    const kidsHtml = (kids.length && open)
+      ? '<div class="tw2-kids">' + walk(kids, depth + 1) + '</div>' : '';
+    // 三角必须在 <a> 内部：外面那个是 inline-flex、a 是 flex，并排会掉成两行
+    // （用户反馈「三角和名字不在一行」）。
+    return '<div class="tw2-n' + (n.id === cur.id ? ' on' : '') +
+      (path.has(n.id) ? ' inpath' : '') + '" style="--d:' + depth +
+      '" data-tid="' + n.id + '" data-tname="' +
+      esc((n.name + ' ' + (n.keywords || []).join(' ')).toLowerCase()) + '">' +
+      '<a href="#" class="tw2-row" data-topen="' + n.id + '">' +
+      (kids.length
+        ? '<span class="tw2-tw' + (open ? ' open' : '') + '" data-ttog="' + n.id + '">' +
+          (open ? '−' : '+') + '</span>'
+        : '<span class="tw2-tw leaf"></span>') +
+      '<span class="tw2-nm">' + esc(n.name) + '</span>' +
+      '<span class="tw2-c">' + n.count + '</span></a>' + kidsHtml + '</div>';
+  }).join('');
+  return '<div class="tw2-nav">' + walk(TREE.tree, 0) + '</div>';
+}
+
+function treeCardHtml(n, map){
+  const cls = n.level === 1 ? 'c1' : n.level === 2 ? 'c2' : 'c3';
+  const sub = n.summary ? esc(n.summary.length > 46 ? n.summary.slice(0,46) + '…' : n.summary) : '';
+  return '<div class="tw2-card ' + cls + '" data-topen="' + n.id + '">' +
+    '<div class="tw2-cn">' + esc(n.name) + '<span class="tw2-cc">' + n.count + ' 篇</span></div>' +
+    (sub ? '<div class="tw2-cs">' + sub + '</div>' : '') + '</div>';
+}
+
+function articleTableHtml(node, list){
+  const arr = [...list].sort((a,b) => TREE_SORT === 'sim'
+    ? (b.sim || 0) - (a.sim || 0) : String(b.date).localeCompare(String(a.date)));
+  const rows = arr.map(a =>
+    '<tr><td class="ta-t"><a href="#" data-tart="' + esc(a.id) + '">' + esc(a.title) + '</a>'
+    + (a.role === 'secondary' ? '<span class="ta-sub">次要归属</span>' : '')
+    + '</td><td class="ta-m"><span class="badge">' + esc(catName(a.category)) + '</span>'
+    + esc(a.id) + '</td><td class="ta-d">' + esc(a.date) + '</td>'
+    + '<td class="ta-s">' + (a.sim != null ? a.sim : '') + '</td></tr>').join('');
+  return '<div class="tw2-arts"><div class="tw2-ah">'
+    + (node.level === 3 ? '这个话题下的文章' : '这一片下的文章（跨话题去重）')
+    + '<span>' + arr.length + ' 篇</span>'
+    + '<button class="seg' + (TREE_SORT === 'sim' ? ' on' : '') + '" data-tsort="sim">按相似度</button>'
+    + '<button class="seg' + (TREE_SORT === 'date' ? ' on' : '') + '" data-tsort="date">按时间</button>'
+    + '</div><table class="tw2-tb"><thead><tr><th>标题</th><th>分类 / 编号</th>'
+    + '<th>日期</th><th class="ta-s">相似度</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function unmountedHtml(list){
+  return '<div class="tw2-unm"><b>还没归类的 ' + list.length + ' 篇</b>'
+    + '<span>任何话题都不够像（阈值 0.6），没有硬塞进去。点标题看内容，觉得该归哪儿就手动挪。</span>'
+    + '<div>' + list.map(a =>
+        '<a href="#" data-tart="' + esc(a.id) + '">' + esc(a.title.slice(0,34)) + '</a>').join('')
+    + '</div></div>';
+}
+
+/* ================================================================ 模块 10：标签词云
+
+   词云刻意**原样画全部标签、不做归并**：归并涉及「哪个词该并到哪个词」的判断，
+   那是用户的决定。词云的价值是把碎片化摊开给人看 —— 实测 2166 个标签 / 752 篇，
+   78% 只出现一次，同义标签（Agent / AI Agent / 智能体）并排出现。 */
+let CLOUD = null, CLOUD_N = 120, CLOUD_CAT = '', CLOUD_BOXES = [];
+
+async function renderTagCloud(){
+  const box = $('#view-tagcloud');
+  box.innerHTML = '<div class="empty">正在统计标签…</div>';
+  try {
+    if (!CLOUD) CLOUD = await api('/api/tags');
+    paintCloud(box);
+  } catch(e){ box.innerHTML = '<div class="empty">读取失败：' + esc(e.message || e) + '</div>'; }
+}
+
+function paintCloud(box){
+  const cats = CLOUD.categories || {};
+  const tags = CLOUD.tags.filter(t => t.n >= 2
+    && (!CLOUD_CAT || (t.c[CLOUD_CAT] || 0) > 0));
+  const once = CLOUD.tags.length - CLOUD.tags.filter(t => t.n >= 2).length;
+  box.innerHTML =
+    '<div class="cl-bar">' +
+      '<div class="cl-meta"><b>' + CLOUD.total_tags + '</b> 个标签 / <b>' +
+        CLOUD.total_articles + '</b> 篇 · 前 <b>' + CLOUD.tags_for_90 +
+        '</b> 个就覆盖 90% 文章 · 只出现 1 次的 <b>' + once + '</b> 个没画</div>' +
+      '<div class="cl-ctl">' +
+        '<button class="seg' + (CLOUD_CAT === '' ? ' on' : '') + '" data-cc="">全部</button>' +
+        Object.keys(cats).map(k =>
+          '<button class="seg' + (CLOUD_CAT === k ? ' on' : '') + '" data-cc="' + esc(k) + '">' +
+          esc(cats[k]) + '</button>').join('') +
+        '<span class="cl-sep"></span>' +
+        [80,120,300].map(n =>
+          '<button class="seg' + (CLOUD_N === n ? ' on' : '') + '" data-cn="' + n + '">' + n + ' 词</button>').join('') +
+      '</div>' +
+    '</div>' +
+    '<div class="cl-hint">词<b>大小 = 文章数</b>，<b>颜色 = 该标签下文章的主导分类</b>。' +
+      '注意同义标签会并排出现（<b>Agent</b> / <b>AI Agent</b> / <b>智能体</b> 指同一件事）' +
+      ' —— 这就是标签碎片化的样子，规范化术语后可合并的地方一目了然。</div>' +
+    '<div class="cl-wrap"><canvas id="clCanvas"></canvas>' +
+      '<aside class="cl-side" id="clSide"><div class="empty">点云里任意一个词，' +
+      '这里列出带这个标签的全部文章。</div></aside></div>';
+
+  box.querySelectorAll('[data-cc]').forEach(b => b.onclick = () => {
+    CLOUD_CAT = b.dataset.cc; paintCloud(box);
+  });
+  box.querySelectorAll('[data-cn]').forEach(b => b.onclick = () => {
+    CLOUD_N = +b.dataset.cn; paintCloud(box);
+  });
+  readPalette();
+  drawCloud($('#clCanvas'), tags.slice(0, CLOUD_N));
+}
+
+/* 词云配色：分类 → 莫兰迪色板。**必须先把 CSS 变量读成真实色值** ——
+   canvas 的 fillStyle 不解析 var(--c0)，直接赋值会静默失效、整片画成黑色
+   （2026-10-07 用户指出「颜色没实现」）。 */
+const CLOUD_PALETTE = {};
+function readPalette(){
+  const cs = getComputedStyle(document.documentElement);
+  const keys = {idea:'--c0', tech:'--c1', app:'--c2', health:'--c3', dao:'--c4'};
+  Object.keys(keys).forEach(k => {
+    const v = cs.getPropertyValue(keys[k]).trim();
+    CLOUD_PALETTE[k] = v || '#888';
+  });
+}
+function cloudColor(dist){
+  const e = Object.entries(dist).sort((a,b) => b[1] - a[1])[0];
+  return (e && CLOUD_PALETTE[e[0]]) || CLOUD_PALETTE.idea || '#888';
+}
+
+function drawCloud(cv, list){
+  if (!Object.keys(CLOUD_PALETTE).length) readPalette();
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth || 800, H = 520;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cv.style.height = H + 'px';
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.textBaseline = 'top';
+  CLOUD_BOXES = [];
+  if (!list.length) return;
+  const max = list[0].n;
+  const hit = (a, b) => !(a.x + a.w < b.x || b.x + b.w < a.x
+                         || a.y + a.h < b.y || b.y + b.h < a.y);
+  list.forEach(t => {
+    const fs = Math.round(12 + 34 * Math.max(0, Math.min(1,
+      (Math.sqrt(t.n / max) - 0.15) / 0.85)));
+    ctx.font = '600 ' + fs + 'px -apple-system,"PingFang SC",sans-serif';
+    const w = ctx.measureText(t.t).width + 10, h = fs * 1.18;
+    let box = null;
+    for (let ring = 0; ring < Math.max(W, H) && !box; ring += 5){
+      for (let a = 0; a < 360; a += 5){
+        const rad = a * Math.PI / 180;
+        const x = W/2 + ring * Math.cos(rad) - w/2;
+        const y = H/2 + ring * Math.sin(rad) * 0.6 - h/2;
+        if (x < 2 || y < 2 || x + w > W-2 || y + h > H-2) continue;
+        const b = {x:x, y:y, w:w, h:h};
+        if (CLOUD_BOXES.every(p => !hit(p, b))){ box = b; break; }
+      }
+    }
+    if (!box) return;
+    box.tag = t; CLOUD_BOXES.push(box);
+    ctx.fillStyle = cloudColor(t.c);
+    ctx.globalAlpha = 0.82 + 0.18 * (t.n / max);
+    ctx.fillText(t.t, box.x + 5, box.y);
+  });
+  ctx.globalAlpha = 1;
+  cv.onclick = ev => {
+    const r = cv.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const b = CLOUD_BOXES.find(p => mx >= p.x && mx <= p.x + p.w
+      && my >= p.y && my <= p.y + p.h);
+    if (b) showTagArticles(b.tag);
+  };
+  cv.onmousemove = ev => {
+    const r = cv.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const b = CLOUD_BOXES.find(p => mx >= p.x && mx <= p.x + p.w
+      && my >= p.y && my <= p.y + p.h);
+    cv.style.cursor = b ? 'pointer' : 'default';
+    cv.title = b ? b.tag.t + ' · ' + b.tag.n + ' 篇' : '';
+  };
+}
+
+function showTagArticles(t){
+  // 侧栏只留文章标题（用户 2026-10-07：不用加类别）
+  const arts = t.ids.map(id => CLOUD.articles[id]).filter(Boolean)
+    .sort((a,b) => state.order === 'asc'
+      ? String(a.id).localeCompare(String(b.id)) : String(b.id).localeCompare(String(a.id)));
+  $('#clSide').innerHTML = '<h3 class="cl-sh">' + esc(t.t)
+    + '<span>' + t.n + ' 篇</span></h3>'
+    + orderSwitch()
+    + arts.map(a => '<div class="cl-a" data-cid="' + esc(a.id) + '">'
+      + esc(a.t || a.id) + '</div>').join('');
+  $('#clSide').querySelectorAll('.cl-a').forEach(el =>
+    el.onclick = () => openDetail(el.dataset.cid));
+  $('#clSide').querySelectorAll('[data-act]').forEach(el => {
+    el.onclick = () => { state.order = el.dataset.order;
+      localStorage.setItem('myrag.order', state.order); showTagArticles(t); };
+  });
+}
+
+window.addEventListener('resize', () => {
+  if (state.view === 'tagcloud' && CLOUD) drawCloud($('#clCanvas'), cloudList());
+});
+function cloudList(){
+  return CLOUD.tags.filter(t => t.n >= 2 && (!CLOUD_CAT || (t.c[CLOUD_CAT] || 0) > 0))
+    .slice(0, CLOUD_N);
+}
+
+/* ================================================================ 模块 11：术语归并
+
+   这一页的立场：**规范名由用户拍板，系统只负责把候选摆出来**。
+   早先试过自动合并（向量相似 ≥0.85 就并），结果是「企业转型 + 职业转型 + 组织转型」
+   被串成一组 —— 那是两件完全不同的事。所以这里只有逐条勾选，没有「一键全合」。 */
+let TM = null, TM_SEL = null;
+
+async function renderTagMerge(){
+  const box = $('#view-tagmerge');
+  box.innerHTML = '<div class="empty">正在读取标签现状…</div>';
+  try {
+    TM = await api('/api/tag-merge');
+    TM.edited = {};
+    TM_SEL = {
+      literal: new Set(TM.literal.map((g, i) => i)),
+      vec: new Set(),
+      fam: new Map()
+    };
+    paintMerge(box);
+  } catch(e){ box.innerHTML = '<div class="empty">读取失败：' + esc(e.message || e) + '</div>'; }
+}
+
+function canonOf(set, i, dflt){
+  return (TM.edited && TM.edited[set + ':' + i]) || dflt;
+}
+
+function mergeChosen(){
+  const out = [];
+  const put = (c, a) => {
+    const hit = out.find(o => o.canonical === c);
+    if (hit){ if (!hit.aliases.includes(a)) hit.aliases.push(a); }
+    else out.push({ canonical: c, aliases: [a] });
+  };
+  TM.literal.forEach((g, i) => {
+    if (TM_SEL.literal.has(i)){
+      const c = canonOf('literal', i, g.canonical);
+      g.aliases.forEach(a => put(c, a));
+    }
+  });
+  TM.vector_pairs.forEach((p, i) => {
+    if (TM_SEL.vec.has(i)) put(canonOf('vec', i, p.a), p.b);
+  });
+  TM.families.forEach((f, fi) => f.tags.forEach(t => {
+    if (TM_SEL.fam.get(fi + ':' + t.t)) put(f.core, t.t);
+  }));
+  return out.filter(m => m.aliases.length && !m.aliases.includes(m.canonical));
+}
+
+function paintMerge(box){
+  const chosen = mergeChosen();
+  const removed = new Set();
+  chosen.forEach(g => g.aliases.forEach(a => removed.add(a)));
+
+  let h = '<div class="tm-bar">' +
+    '<div class="tm-meta">当前 <b>' + TM.total_tags + '</b> 个标签 / ' +
+      TM.n_articles + ' 篇 · 已生效映射 <b>' + TM.aliases.length + '</b> 条' +
+      (TM.pending.length ? ' · 未纳入规范的新标签 <b>' + TM.pending.length + '</b> 个' : '') +
+    '</div>' +
+    '<button class="btn" id="tmClear">取消全部勾选</button>' +
+    '<button class="btn primary" id="tmApply"' + (chosen.length ? '' : ' disabled') + '>' +
+      '应用 ' + chosen.length + ' 条归并</button></div>' +
+    '<div class="tm-prev">按当前勾选，应用后：<b>' + TM.total_tags + ' → ' +
+      (TM.total_tags - removed.size) + '</b> 个标签（少 ' + removed.size + ' 个写法）' +
+      (chosen.length ? '；规范名：' + esc([...new Set(chosen.map(c=>c.canonical))].join('、'))
+        : '') + '</div>' +
+    (TM.vector_stale ? '<div class="tm-warn">没找到语义相似候选的缓存文件，只有字面同组可勾。</div>' : '');
+
+  h += '<div class="tm-sec"><div class="tm-sh">① 只差大小写 / 空格 / 全半角的，' +
+    '必然是同一个<span>' + TM_SEL.literal.size + ' / ' + TM.literal.length + ' 已勾</span></div>' +
+    '<div class="tm-rows">' + TM.literal.map((g, i) =>
+      '<label class="tm-item' + (TM_SEL.literal.has(i) ? ' on' : '') + '">' +
+      '<input type="checkbox" data-tm-tog data-tm-set="literal" data-tm-idx="' + i + '"' +
+        (TM_SEL.literal.has(i) ? ' checked' : '') + '>' +
+      '<span class="tm-cn" data-tm-canon="literal" data-tm-idx="' + i + '" contenteditable="true">' +
+        esc(canonOf('literal', i, g.canonical)) + '</span>' +
+      '<span class="tm-ar">←</span>' +
+      g.aliases.map(a => '<span class="tm-al">' + esc(a) +
+        (g.counts[a] ? '<i>' + g.counts[a] + '</i>' : '') + '</span>').join('') +
+      '</label>').join('') + '</div></div>';
+
+  if (TM.vector_pairs.length){
+    h += '<div class="tm-sec"><div class="tm-sh">② 向量认为相近，' +
+      '但可能只是「共享了一个词」，请逐条判断<span>' + TM_SEL.vec.size + ' / ' +
+      TM.vector_pairs.length + ' 已勾</span></div><div class="tm-rows">' +
+      TM.vector_pairs.map((p, i) =>
+        '<label class="tm-item' + (TM_SEL.vec.has(i) ? ' on' : '') + '">' +
+        '<input type="checkbox" data-tm-tog data-tm-set="vec" data-tm-idx="' + i + '"' +
+          (TM_SEL.vec.has(i) ? ' checked' : '') + '>' +
+        '<span class="tm-cn" data-tm-canon="vec" data-tm-idx="' + i + '" contenteditable="true">' +
+          esc(canonOf('vec', i, p.a)) + '</span>' +
+        '<span class="tm-ar">←</span><span class="tm-al">' + esc(p.b) +
+          (p.nb ? '<i>' + p.nb + '</i>' : '') + '</span>' +
+        '<span class="tm-sim">cos ' + p.sim + '</span></label>').join('') +
+      '</div></div>';
+  }
+
+  if (TM.families.length){
+    h += '<div class="tm-sec"><div class="tm-sh">③ 词族：含同一核心词的众多写法' +
+      '<span>向量抓不到跨语言同义（Agent ↔ 智能体），只能你圈定</span></div>';
+    TM.families.forEach((f, fi) => {
+      h += '<div class="tm-fam"><div class="tm-fn">' + esc(f.core) + ' 家族 · ' +
+        f.tags.length + ' 种写法<button class="btn" data-tm-famall="' + fi +
+        '">把「' + esc(f.core) + '」本身之外的都并进来</button></div><div class="tm-tags">' +
+        f.tags.map(t => {
+          const k = fi + ':' + t.t, on = TM_SEL.fam.get(k);
+          return '<label class="tm-tag' + (on ? ' on' : '') + '">' +
+            '<input type="checkbox" data-tm-famtog data-tm-fam="' + fi +
+            '" data-tm-tag="' + esc(t.t) + '"' + (on ? ' checked' : '') + '>' +
+            esc(t.t) + '<i>' + t.n + '</i></label>';
+        }).join('') + '</div></div>';
+    });
+    h += '</div>';
+  }
+
+  if (TM.aliases.length){
+    const byCanon = {};
+    TM.aliases.forEach(a => (byCanon[a.canonical] = byCanon[a.canonical] || []).push(a));
+    h += '<div class="tm-sec"><div class="tm-sh">已生效的映射（' + TM.aliases.length +
+      ' 条）<span>每次入库自动套用</span></div><div class="tm-rows">' +
+      Object.keys(byCanon).map(c => '<div class="tm-row"><span class="tm-cn">' + esc(c) +
+        '</span><span class="tm-ar">←</span>' + byCanon[c].map(a =>
+        '<span class="tm-al">' + esc(a.alias) +
+        (a.count ? '<i>' + a.count + '</i>' : '') + '</span>').join('') + '</div>').join('') +
+      '</div></div>';
+  }
+
+  box.innerHTML = h + '</div>';
+
+  box.querySelectorAll('[data-tm-tog]').forEach(el => el.onchange = () => {
+    const s = TM_SEL[el.dataset.tmSet], i = +el.dataset.tmIdx;
+    if (el.checked) s.add(i); else s.delete(i);
+    paintMerge(box);
+  });
+  box.querySelectorAll('[data-tm-canon]').forEach(el => el.oninput = () => {
+    TM.edited[el.dataset.tmCanon + ':' + el.dataset.tmIdx] = el.textContent.trim();
+    const b = $('#tmApply');
+    if (b) b.textContent = '应用 ' + mergeChosen().length + ' 条归并';
+  });
+  box.querySelectorAll('[data-tm-famtog]').forEach(el => el.onchange = () => {
+    const k = el.dataset.tmFam + ':' + el.dataset.tmTag;
+    if (el.checked) TM_SEL.fam.set(k, true); else TM_SEL.fam.delete(k);
+    el.parentElement.classList.toggle('on', el.checked);
+  });
+  box.querySelectorAll('[data-tm-famall]').forEach(b => b.onclick = () => {
+    const fi = +b.dataset.tmFamAll, f = TM.families[fi];
+    f.tags.forEach(t => { if (t.t !== f.core) TM_SEL.fam.set(fi + ':' + t.t, true); });
+    paintMerge(box);
+  });
+  const clr = $('#tmClear');
+  if (clr) clr.onclick = () => {
+    TM_SEL.literal.clear(); TM_SEL.vec.clear(); TM_SEL.fam.clear();
+    paintMerge(box);
+  };
+  const ap = $('#tmApply');
+  if (ap) ap.onclick = applyMerges;
+}
+
+async function applyMerges(){
+  const list = mergeChosen();
+  if (!list.length) return;
+  const preview = list.slice(0, 6).map(g => esc(g.canonical) + ' ← ' +
+    g.aliases.map(esc).join('、')).join('\n');
+  if (!confirm('将改写这 ' + list.length + ' 组涉及的 articles.tags（会自动备份）：\n\n' +
+      preview + (list.length > 6 ? '\n……' : '') + '\n\n确定应用？')) return;
+  try {
+    // 用项目现成的 apiJson：它带 Content-Type。之前自己拼 fetch 漏了头，
+    // FastAPI 把 body 当字符串解析，直接 422（2026-10-07 实测）。
+    const r = await apiJson('/api/tag-merge/apply', 'POST', { merges: list });
+    toast('已归并 ' + r.tags_merged + ' 个写法，涉及 ' + r.articles_changed + ' 篇');
+    await renderTagMerge();
+    CLOUD = null;
+    if (state.view === 'tagcloud') renderTagCloud();
+  } catch(e){ showErr(e); }
+}
 /* ================================================================ 模块 8：详情抽屉 */
 function closeDrawer(){
   $('#drawer').classList.remove('on');

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知识结构 · 目录</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#fff; --line:#e3e6ea; --ink:#1a1e23; --dim:#666e78;
+    --faint:#98a0a8; --l1:#1d4ed8; --l2:#0f766e; --l3:#c2410c; --accent:#2563eb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  header{background:var(--card);border-bottom:1px solid var(--line);
+    padding:14px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+    position:sticky;top:0;z-index:20}
+  h1{margin:0;font-size:17px}
+  .meta{color:var(--dim);font-size:12.5px}
+  .meta b{color:var(--ink)}
+  #q{padding:7px 11px;border:1px solid var(--line);border-radius:7px;font-size:13px;
+    width:260px;background:#fbfbfc}
+  .wrap{display:flex;align-items:flex-start;gap:0}
+  nav{width:310px;flex:0 0 310px;height:calc(100vh - 53px);overflow-y:auto;
+    border-right:1px solid var(--line);background:var(--card);padding:12px 0 40px}
+  main{flex:1;min-width:0;padding:20px 26px 70px}
+  .nav-i{display:block;width:100%;text-align:left;border:none;background:none;
+    cursor:pointer;padding:5px 14px 5px 0;font:inherit;color:var(--ink)}
+  .nav-i:hover{background:#f4f6f9}
+  .nav-i.on{background:#eef2ff;box-shadow:inset 3px 0 0 var(--accent);color:var(--accent)}
+  .nav-i .tw{display:inline-block;width:13px;color:var(--faint);font-size:10px}
+  .nav-i .nm{font-weight:600}
+  .nav-i .ct{color:var(--faint);font-size:11.5px;margin-left:5px}
+  .lv1 .nav-i .nm{font-size:13.5px}
+  .lv2{padding-left:15px}
+  .lv3{padding-left:32px}
+  .lv2 .nav-i .nm{font-size:13px;color:#0f5c56}
+  .lv3 .nav-i .nm{font-size:12.5px;color:#7c3d12;font-weight:500}
+  .crumb{font-size:12.5px;color:var(--dim);margin-bottom:8px}
+  .crumb span{color:var(--faint)}
+  h2{margin:0 0 6px;font-size:22px}
+  h2 small{font-size:13px;color:var(--faint);font-weight:400;margin-left:10px}
+  .desc{color:#374151;margin:0 0 12px;max-width:900px}
+  .kw{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:16px}
+  .kw span{font-size:11.5px;background:#eef1f5;color:#475569;border-radius:5px;padding:2px 7px}
+  .subs{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+    margin-bottom:26px}
+  .sub{border:1px solid var(--line);border-radius:9px;background:var(--card);
+    padding:12px 14px;cursor:pointer}
+  .sub:hover{border-color:#bfdbfe;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+  .sub .n{font-size:14.5px;font-weight:600}
+  .sub .c{font-size:11.5px;color:var(--faint);margin-left:6px}
+  .sub .d{font-size:12.5px;color:#4b5563;margin-top:4px}
+  .bar{display:flex;height:4px;border-radius:2px;overflow:hidden;background:#eef1f5;margin-top:7px}
+  .bar i{display:block;height:100%}
+  h3{font-size:14px;margin:22px 0 8px;display:flex;align-items:center;gap:10px}
+  h3 .n{color:var(--faint);font-weight:400;font-size:12.5px}
+  .sortbtn{font-size:11.5px;border:1px solid var(--line);background:var(--card);
+    border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--dim)}
+  .sortbtn.on{border-color:var(--accent);color:var(--accent)}
+  table{width:100%;border-collapse:collapse;background:var(--card);
+    border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  th{font-size:11.5px;color:var(--faint);text-align:left;font-weight:500;
+    padding:8px 12px;border-bottom:1px solid var(--line);background:#fafbfc}
+  td{padding:9px 12px;border-bottom:1px solid #f2f4f6;font-size:13px;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#fafbfc}
+  td.t{font-weight:500}
+  td.m{color:var(--faint);font-size:11.5px;white-space:nowrap}
+  td.s{color:var(--dim);font-size:12px;white-space:nowrap;text-align:right}
+  .badge{display:inline-block;font-size:11px;background:#eef1f5;color:#475569;
+    border-radius:4px;padding:1px 6px;margin-right:5px}
+  .warn{margin:0 0 16px;padding:10px 13px;background:#fffbeb;border:1px solid #fde68a;
+    border-radius:8px;font-size:12.5px;color:#78350f}
+  .empty{color:var(--faint);font-size:13px;padding:16px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>知识结构 · 目录</h1>
+  <div class="meta" id="meta"></div>
+  <input id="q" placeholder="搜索话题 / 关键词（FDE、RAG、餐饮）">
+  <div style="flex:1"></div>
+  <div class="meta" id="mount"></div>
+</header>
+<div class="wrap">
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+<script>
+const D = /*__DATA__*/null;
+const P = D.payload;
+const N = {}; P.nodes.forEach(n => N[n.key] = n);
+const CH = {}; P.nodes.forEach(n => CH[n.parent || ""] =
+  (CH[n.parent || ""] || []).concat(n));
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const cat = k => (P.categories||{})[k] || k;
+const CATC = {idea:"#2563eb", tech:"#0f766e", app:"#b45309",
+              dao:"#7c3aed", health:"#dc2626"};
+let cur = null, sortBy = "sim";
+
+document.getElementById("meta").innerHTML =
+  `<b>${P.n_articles}</b> 篇 · ${P.domains.length} 领域 · ` +
+  `${P.nodes.filter(n=>n.kind==='board').length} 板块 · ` +
+  `<b>${P.nodes.filter(n=>n.kind==='topic').length}</b> 话题`;
+document.getElementById("mount").innerHTML =
+  `挂 ${P.mount.top_n} 个话题 · 有 <b>${P.unmounted_articles.length}</b> 篇未归类 · ` +
+  `建于 ${esc(P.built_at.slice(0,10))}`;
+
+// ---------------------------------------------------------------- 左侧树
+function navBtn(k){
+  const n = N[k];
+  const kids = CH[k] || [];
+  const b = document.createElement("button");
+  b.className = "nav-i lv" + n.level + (cur === k ? " on" : "");
+  b.dataset.k = k;
+  b.dataset.t = (n.name + " " + (n.keywords||[]).join(" ")).toLowerCase();
+  b.innerHTML = `<span class="tw">${kids.length ? "▾" : "·"}</span>` +
+    `<span class="nm">${esc(n.name)}</span><span class="ct">${n.count||0}</span>`;
+  b.onclick = () => show(k);
+  return b;
+}
+function renderNav(){
+  const el = document.getElementById("nav");
+  el.innerHTML = "";
+  P.domains.forEach(d => {
+    const box = document.createElement("div");
+    box.appendChild(navBtn(d.key));
+    (d.boards||[]).forEach(bd => {
+      box.appendChild(navBtn(bd.key));
+      (bd.topics||[]).forEach(t => box.appendChild(navBtn(t.key)));
+    });
+    el.appendChild(box);
+  });
+  filterNav();
+}
+function filterNav(){
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  document.querySelectorAll(".nav-i").forEach(b => {
+    b.classList.toggle("hidden", !!q && !b.dataset.t.includes(q));
+  });
+  document.querySelectorAll(".nav-i").forEach(b => {
+    if (b.classList.contains("hidden")) return;
+  });
+  // 有匹配子节点的父级也显示
+  document.querySelectorAll(".nav-i").forEach(b => {
+    if (b.classList.contains("hidden") && !q) return;
+    if (!q) { b.classList.remove("hidden"); return; }
+    if (b.dataset.t.includes(q)) b.classList.remove("hidden");
+  });
+}
+document.getElementById("q").addEventListener("input", () => { filterNav(); });
+
+// ---------------------------------------------------------------- 右侧
+function crumb(k){
+  const chain = [];
+  let x = N[k];
+  while (x) { chain.unshift(x); x = x.parent ? N[x.parent] : null; }
+  return chain.map((n,i) => i === chain.length-1
+    ? `<b style="color:var(--ink)">${esc(n.name)}</b>`
+    : `<a href="#" data-go="${n.key}">${esc(n.name)}</a>`).join(" <span>›</span> ");
+}
+function subsOf(k){
+  return (CH[k]||[]).map(c => {
+    const n = N[c.key];
+    const tot = (c.articles || []).length || n.count || 1;
+    const seg = Object.entries(
+      (c.articles||[]).reduce((m,a)=>(m[a.category]=(m[a.category]||0)+1,m),{})
+    ).sort((a,b)=>b[1]-a[1])
+     .map(([k2,v])=>`<i style="width:${(v/tot*100).toFixed(1)}%;background:${CATC[k2]||"#94a3b8"}"></i>`).join("");
+    return `<div class="sub" data-go="${c.key}">
+      <span class="n">${esc(n.name)}</span><span class="c">${n.count||0} 篇</span>
+      <div class="d">${esc((n.summary||"").slice(0,62))}</div>
+      <div class="bar">${seg}</div></div>`;
+  }).join("");
+}
+function articlesTable(list, label){
+  if (!list || !list.length) return `<div class="empty">（这一层还没有文章）</div>`;
+  const arr = [...list].sort((a,b) => sortBy === "sim"
+    ? (b.sim||0) - (a.sim||0) : String(b.date||"").localeCompare(String(a.date||"")));
+  const body = arr.map(a => `<tr>
+      <td class="t"><a href="#" class="art" data-id="${esc(a.id)}">${esc(a.title)}</a>
+        ${a.summary?`<div style="font-size:12px;color:#4b5563;margin-top:3px">${esc(a.summary)}</div>`:""}</td>
+      <td class="m"><span class="badge">${esc(cat(a.category))}</span>${esc(a.id)}</td>
+      <td class="m">${esc(a.date||"")}</td>
+      <td class="s">${a.sim!=null?a.sim:""}</td></tr>`).join("");
+  return `<h3>${esc(label)} <span class="n">${arr.length} 篇</span>
+      <button class="sortbtn ${sortBy==="sim"?"on":""}" data-sort="sim">按相似度</button>
+      <button class="sortbtn ${sortBy==="date"?"on":""}" data-sort="date">按时间</button>
+    </h3>
+    <table><thead><tr><th>标题</th><th>分类 / 编号</th><th>日期</th>
+      <th style="text-align:right">相似度</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+function show(k){
+  cur = k;
+  const n = N[k];
+  const kids = CH[k] || [];
+  const parts = [`<div class="crumb">${crumb(k)}</div>
+    <h2>${esc(n.name)} <small>${n.kind==="topic"?"话题":n.kind==="board"?"板块":"领域"}
+      · ${n.count||0} 篇</small></h2>`];
+  if (n.summary) parts.push(`<p class="desc">${esc(n.summary)}</p>`);
+  if ((n.keywords||[]).length)
+    parts.push(`<div class="kw">${n.keywords.map(w=>`<span>${esc(w)}</span>`).join("")}</div>`);
+
+  // 待归类只在顶层提示一次
+  if (k === P.domains[0].key && (P.unmounted_articles||[]).length) {
+    parts.push(`<div class="warn">有 <b>${P.unmounted_articles.length}</b> 篇
+      任何话题都不够像（阈值 ${P.mount.min_sim}），没硬塞进任何话题：${
+      P.unmounted_articles.map(a=>esc(a.title.slice(0,26))).join(" / ")}
+      —— 它们要么该单开一个话题，要么该合并进现有话题。</div>`);
+  }
+  if (kids.length) parts.push(`<div class="subs">${subsOf(k)}</div>`);
+
+  if (n.kind === "topic") parts.push(articlesTable(n.articles, "这个话题下的文章"));
+  else {
+    // 领域/板块：把下属话题的文章去重后汇总，让「这一片到底有哪些文章」也能直接看到
+    const seen = new Map();
+    kids.forEach(c => (N[c.key].articles||[]).forEach(a =>
+      { if (!seen.has(a.id)) seen.set(a.id, a); }));
+    parts.push(articlesTable([...seen.values()], "这一片下的全部文章（跨话题去重）"));
+  }
+
+  const ovl = P.overlaps||[];
+  if (ovl.length && k === P.domains[0].key) {
+    parts.push(`<div class="warn" style="margin-top:24px"><b>目录重叠提醒</b>：${
+      ovl.map(o=>`${esc(o.a)} ↔ ${esc(o.b)}（共用 ${o.shared} 篇）`).join("；")}
+      —— 这两处写重了，建议合并或把关键词改得更专。</div>`);
+  }
+
+  const m = document.getElementById("main");
+  m.innerHTML = parts.join("");
+  m.querySelectorAll("[data-go]").forEach(el => el.onclick = ev => {
+    ev.preventDefault(); show(el.dataset.go);
+  });
+  m.querySelectorAll(".sortbtn").forEach(b => b.onclick = () => {
+    sortBy = b.dataset.sort; show(k);
+  });
+  m.querySelectorAll(".art").forEach(a => a.onclick = ev => ev.preventDefault());
+  renderNav();
+  document.querySelector(".nav-i.on")?.scrollIntoView({block:"nearest"});
+  window.scrollTo({top:0});
+}
+
+renderNav();
+show(P.domains[0].key);
+</script>
+<style>.hidden{display:none}</style>
+</body>
+</html>
