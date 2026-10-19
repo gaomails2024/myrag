@@ -1,9 +1,9 @@
 ---
 name: MyRag
-description: 微信文章收藏系统 MyRag 的入口。用户输入 MyRag 并附微信文章链接时使用。职责两件：① 抓取全文与配图（调本 Skill 自带脚本，零依赖）② 按系统配置判类并编排调用本地 MyRag 系统的 API 完成入库。分类的名字、数量、划分标准都由使用者在工作台「分类设置」里自定义，所以判类前必须先读 /api/categories，不要在本文档里硬找分类。不做存储、不做检索——那两件事由本地系统承担。触发词："MyRag"。
-version: 2.5
+description: 微信文章 / 普通网页收藏系统 MyRag 的入口。用户输入 MyRag 并附链接时使用（公众号文章、图片合辑，或任意网页）。职责两件：① 抓取全文与配图（调本 Skill 自带脚本，零依赖）② 按系统配置判类并编排调用本地 MyRag 系统的 API 完成入库。分类的名字、数量、划分标准都由使用者在工作台「分类设置」里自定义，所以判类前必须先读 /api/categories，不要在本文档里硬找分类。不做存储、不做检索——那两件事由本地系统承担。触发词："MyRag"。
+version: 2.7
 created: 2026-09-11
-updated: 2026-10-07
+updated: 2026-10-19
 ---
 
 # MyRag · 微信文章分流器
@@ -31,36 +31,19 @@ updated: 2026-10-07
 
 用户不会说别的，这 5 个字母就是全部触发词。
 
-### 入库目标：local 还是 cloud（先分流）
-
-本 Skill 有两个入库目标，**默认 `local`**（本机系统），仅在环境变量 `MYRAG_TARGET=cloud`
-（或使用者明确说「入 4P / 入云端 / 入 WeKnora」）时走 cloud：
-
-| 目标 | 出口 | 适用 |
-|---|---|---|
-| `local`（默认） | `POST 127.0.0.1:8765/api/ingest` → 本机 SQLite | 个人库，原有行为一字不变 |
-| `cloud` | `{{SKILL_DIR}}/scripts/wk_push.py` → WeKnora（AIHub4P 云端） | 项目制采集：写入项目 KB，带来源与归属人 |
-
-cloud 模式的变化只有三处（下文各步有标注）：**第 0 步跳过本机后端探活**（不依赖 8765）；
-**第 1 步不做本地查重**（cloud 模式去重由 wk_push 的服务端幂等保证，重复推送返回 `dup:true` 按跳过处理）；
-**第 5 步入库改调 wk_push.py**。抓取（第 2 步）、配图过滤与 OCR（第 2.5 步）、判类（第 3 步）、
-抽取物（第 4 步）、核查（第 6 步）**全部不变**——加工判断仍在端侧。
-
-cloud 模式配置（`~/.myrag-cloud.json`，600 权限，由使用者/管理员预置，不进任何仓库）：
-`base_url` / `api_key`（WeKnora 受限 API Key，能力 ingest+retrieve、KB 白名单）/ `kb_id` / `tenant_id` / `collector`。
-
 ## 路径常量
 
 ```
 系统根目录  {{MYRAG_HOME}}/
-抓取脚本    {{SKILL_DIR}}/scripts/wx_fetch.py
-推送脚本    {{SKILL_DIR}}/scripts/wk_push.py      # 仅 cloud 模式用
+路由脚本    {{SKILL_DIR}}/scripts/route_urls.py     ← 先跑它，决定交给哪个抓取脚本
+微信抓取    {{SKILL_DIR}}/scripts/wx_fetch.py
+非微信抓取  {{SKILL_DIR}}/scripts/web_fetch.py
 venv 解释器 {{MYRAG_HOME}}/.venv/bin/python
 stage 目录  {{MYRAG_HOME}}/data/_stage/
 系统文档    {{MYRAG_HOME}}/PRD.md
 
 **解释器约定（踩过坑）**：
-  · `{{SKILL_DIR}}/scripts/wx_fetch.py` 与 `{{SKILL_DIR}}/scripts/wk_push.py` —— **零依赖**，
+  · `{{SKILL_DIR}}/scripts/wx_fetch.py` —— **零依赖**，
     系统 `python3` 直接跑即可；
   · `{{MYRAG_HOME}}/scripts/` 下的脚本（ocr_images / reindex / eval / fetch_rerank…）——
     **依赖都装在 `{{MYRAG_HOME}}/.venv` 里，必须用 `.venv/bin/python` 跑**。
@@ -82,10 +65,7 @@ bash scripts/install.sh --skill-dir "<本 Skill 所在目录>"
 装完再重读本文件，路径常量就正确了。使用者不熟悉命令行时，直接把这条命令原文发给他。
 ```
 
-## 第 0 步：确保系统在跑（不可跳过；cloud 模式跳过本步）
-
-> **cloud 模式（`MYRAG_TARGET=cloud`）跳过本步**——出口是远端 WeKnora，本机后端
-> 不需要在跑。也不要为了 cloud 模式去拉起本机后端。
+## 第 0 步：确保系统在跑（不可跳过）
 
 后端是**按需启动**的：不随开机启动，也可能被用户手动停掉。所以每次调用都先探活，
 不通就用脚本拉起。
@@ -165,15 +145,36 @@ POST http://127.0.0.1:8765/api/check-urls
 
 命中 `dups` 的直接记 `skip_dup`（附上后端给的已有 `id`），**不抓取**。剩余链接进入第 2 步。
 
-## 第 1.5 步：链接分流（文章 vs 视频号）
+## 第 1.5 步：链接分流（微信生态 / 视频号 / 普通网页）
 
-`wx_fetch.py` 按链接类型自动分派（结果里的 `kind` 字段会告诉你走了哪条路）：
+**先跑路由，再抓** —— 不同生态的页面结构完全不同，拿错规则解析等于白抓
+（微信页面套通用定位 → 0 图；普通网页套 `js_content` 规则 → 0 字）：
+
+```bash
+python3 {{SKILL_DIR}}/scripts/route_urls.py --urls-file /tmp/myrag_urls.txt
+```
+
+输出每条的 `route` 与 `script`：
+
+| route | 交给谁 | 说明 |
+|---|---|---|
+| `wechat` | `wx_fetch.py` | 公众号文章 / 图片合辑（原有流程，一行未改） |
+| `video` | 视频号转写链路 | **不抓**（没有可抓的正文），见本节末 |
+| `file` | 拒收 `unsupported_file` | pdf / zip / mp4… 按网页存没有意义 |
+| `web` | `web_fetch.py` | 普通网页；静态拿不到再交 `render_fetch.py` |
+| `bad_url` | 拒收 | 不是 http/https |
+
+微信生态 = `weixin.qq.com` 域名族（`mp.weixin.qq.com`、`weixin.qq.com/sph`、
+`channels.weixin.qq.com`）。**白名单之外一律按普通网页处理** —— 非微信是开放集合、
+穷举不完，默认走 web 才不会漏（猜错成微信的代价是 0 字 0 图，比放过一条大）。
+
+`wx_fetch.py` 内部的 `kind` 仍按页面类型区分：
 
 | 链接 | kind | 处理 |
 |---|---|---|
 | `mp.weixin.qq.com/s/...` 文章 | `wechat` | 解析 `js_content` 正文 |
 | 微信图片合辑（分享卡片） | `wx_album` | 无正文模板，取文案 + 全部图片（图片在页面 JS 的 `picture_page_info_list` 里，**不在 HTML 标签中**） |
-| 其他网页 | `web` | 通用正文定位（`<article>` → `<main>` → 文本最长的块，尽力而为） |
+| 其他网页（兼容旧入口） | `web` | 通用正文定位（`<article>` → `<main>` → 文本最长的块）；**新流程已改走 `web_fetch.py`** |
 | 文件直链（`.pdf/.zip/.mp4`…） | — | 判 `unsupported_file` 拒收，明确告诉用户改存网页版或直接下载 |
 | `weixin.qq.com/sph/...`（视频号） | — | **不走抓取**（判 `bad_url`），改走转写链路 |
 
@@ -247,8 +248,14 @@ PYTHONPATH= ~/.workbuddy/binaries/python/envs/video-transcript/bin/python \
 把待抓链接写进一个临时文件（一行一条），然后：
 
 ```bash
+# route = wechat 的那批
 python3 {{SKILL_DIR}}/scripts/wx_fetch.py \
   --urls-file /tmp/myrag_urls.txt \
+  --stage-root "{{MYRAG_HOME}}/data/_stage"
+
+# route = web 的那批（输出 JSON 字段与上面完全一致，后续步骤不用区分）
+python3 {{SKILL_DIR}}/scripts/web_fetch.py \
+  --urls-file /tmp/myrag_web_urls.txt \
   --stage-root "{{MYRAG_HOME}}/data/_stage"
 ```
 
@@ -295,6 +302,10 @@ OCR 会把它们全部变成正文。实测全库已由此产出 **808 段 / 约
 | `unsupported_file` | 文件直链（pdf/zip/mp4…）。改存网页版，或直接下载文件 |
 | `not_article` | 微信域名但不是文章页、也没认出图片合辑。让用户在微信里「用浏览器打开」后重新复制链接 |
 | `need_render` | **JS 渲染的页面**（非微信链接常见）：HTML 里只有外壳、正文为空。**不是反爬、也不是页面坏了** —— 换 `render_fetch.py` 渲染抓取（见下节），**别让用户重试或换网络** |
+| `not_found` | 页面不存在 / 已删除 / 已下线 —— **链接本身失效，不是抓取失败**，让用户确认链接 |
+| `login_required` | 需要登录才能看。**汇报时单列这一类**（见第 7 步），可用 Browser Skill 登录后重试 |
+| `paywall` | 付费墙 / 会员专享 —— 按约定**不做绕过**（不做不合规抓取），如实告知用户 |
+| `blocked` | 反爬 / 人机验证（403 / 429、Cloudflare 挑战页）—— 同样**不做绕过** |
 | `parse_failed` | 抓到页面但定位不到正文（可能要登录或页面结构特殊） |
 
 **判定验证页看特征词，不看体积** —— 图片合辑等非文章页的 HTML 也可能很小，
@@ -344,7 +355,7 @@ OCR 会把它们全部变成正文。实测全库已由此产出 **808 段 / 约
 **L1 过滤掉多少，抓取日志里会报**（例：「已过滤 22 张无信息配图（尺寸过小 10 张、动图 12 张）」），
 **在最后的结果清单里向用户提一句** —— 这是"入库更干净"的证据。
 
-## JS 渲染页面（`need_render`）—— 微信链接现在也常遇到
+## JS 渲染页面（`need_render`）—— 微信与普通网页都会遇到
 
 **症状**：抓取返回 `fail_reason = need_render`，detail 说「HTML 里只有外壳、正文为空」。
 
@@ -364,6 +375,11 @@ OCR 会把它们全部变成正文。实测全库已由此产出 **808 段 / 约
 
 它会：渲染 → 等待正文挂上来 → 取正文 → **按同一套 L1 规则过滤配图** →
 落在**与 wx_fetch 完全一致的 stage 结构**里。
+
+**普通网页也走这里**（2026-10-19 起）：`web_fetch.py` 报 `need_render` 时，用同一条命令渲染 ——
+脚本会按域名自动选解析器（微信走 `wx_fetch.parse_page`，其他走 `web_fetch.parse_web`：
+正文取 `article` / `main` / 文字+图最多的大块，元数据走 og / JSON-LD / `<time>`）。
+落盘仍是同一个 `save_stage`，**只分叉解析、不分叉落盘**。
 
 **所以拿到 token 后，接原来的第 2.5 / 3 / 5 步即可，后续一步都不用改。**
 
@@ -502,27 +518,7 @@ curl -s http://127.0.0.1:8765/api/tag-vocab
 
 ## 第 5 步：入库（id 由后端分配 —— 你不要自己编）
 
-> **cloud 模式（`MYRAG_TARGET=cloud`）走 `wk_push.py`，本步的 local 说明不适用：**
->
-> ```bash
-> python3 {{SKILL_DIR}}/scripts/wk_push.py --stage {{MYRAG_HOME}}/data/_stage/<token> --collector <归属人>
-> # stdout 一行 JSON：{ok, dup, knowledge_id, title, url_canon, fail_reason}
-> ```
->
-> - 判类/摘要/标签照旧写 `annotations.json`（第 3、4 步不变），wk_push 会读它并作为
->   metadata（`category` / `summary` / `tags`）随文档写入 WeKnora；**批注里的 `tags` 会额外
->   被解析成 WeKnora 原生标签**（库里没有的自动创建）随上传挂载，界面上可见、可按标签筛选——
->   这就是云端模式的「自动打标」，不需要也不依赖 WeKnora 自带的 auto_tag_config（它只从已有标签里匹配）。
-> - 正文里的 `![]()` 图片行由 wk_push 剥离（图内文字已按第 2.5 步 OCR 注入正文）；来源链接、
->   公众号、发布日、收集人会以「来源行」+ metadata 双份留痕。
-> - **`dup=true` = WeKnora 侧已有此文（服务端幂等），按跳过处理，不要重试。**
-> - 失败时 `fail_reason` 见脚本 docstring 枚举；`bad_config` = `~/.myrag-cloud.json`
->   缺失或不全，把配置问题报给使用者，**不要退回 local 模式悄悄入库**（归属会丢）。
-> - cloud 模式不分配 `<前缀>-<日期>-<NN>` 编号（那是 local 库的编号体系）。文档名 =
->   `<文章标题>.md`（标题做显示名，非法字符清洗、100 字截断；日期不进文件名，界面时间列已呈现），去重靠
->   `~/.myrag-cloud-ledger.jsonl` 台账（url_canon 精确比对）+ 服务端同名 409 双保险。
-
-**local 模式：不要自己生成 `id`。** 编号是 `<A|T|I>-<YYYYMMDD>-<NN>`，其中 `NN` = 「该前缀该日已有条数 + 1」——这必须查库才算得准。你编必然撞号（重跑、并发、同日多篇都会撞）。
+**不要自己生成 `id`。** 编号是 `<A|T|I>-<YYYYMMDD>-<NN>`，其中 `NN` = 「该前缀该日已有条数 + 1」——这必须查库才算得准。你编必然撞号（重跑、并发、同日多篇都会撞）。
 
 ```
 POST http://127.0.0.1:8765/api/ingest
@@ -581,6 +577,16 @@ I-20260101-01  示例文章 C            理念思考  —
 ```
 
 **逐条一行，不许合并成"已处理完毕"。**
+
+**失败要分类报**（用户 2026-10-19 定），不要只丢一串 `fail_reason`：
+
+| 类别 | fail_reason | 报给用户的话 |
+|---|---|---|
+| 链接失效 | `not_found` | 页面已删除 / 已下线，请确认链接 |
+| **需要用户配合登录** | `login_required` | **单列出来**：这条需要登录才能看，可用 Browser Skill 打开登录后重试 |
+| 合规拒绝 | `paywall` / `blocked` | 付费墙 / 反爬，按约定不做绕过 |
+| 可重试 | `verify_page` / `network` | 稍后重试或换网络（不是链接错了） |
+| 抓取能力不足 | `need_render` / `parse_failed` | 已尝试渲染仍取不到，需人工看一眼 |
 
 ## 第 8 步：用户说「打开看看 / 我看看」时
 

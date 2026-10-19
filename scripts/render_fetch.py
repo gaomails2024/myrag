@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""JS 渲染页面抓取 —— 处理 `wx_fetch.py` 报出的 `need_render`。
+"""JS 渲染页面抓取 —— 处理 `wx_fetch.py` / `web_fetch.py` 报出的 `need_render`。
+
+**2026-10-19 起也服务普通网页**（用户要求「非微信生态网址也要能抓」）：
+  · 微信页面：正文取 `#js_content`，解析与落盘调 `wx_fetch.parse_page` / `save_stage`；
+  · 普通网页：正文取 `article` / `main` / 文字+图最多的大块，解析调
+    `web_fetch.parse_web`（og / JSON-LD / `<time>` 那套元数据），落盘仍是同一个
+    `save_stage`。**只分叉解析，不分叉落盘** —— 两套落盘正是 2026-10-07「9 篇渲染
+    文章全部 0 图」的根源。
 
 **为什么单独一个脚本，而不是塞进 wx_fetch.py**：
 `wx_fetch.py` 的硬约束是**零依赖**（Skill 侧要能在不装任何包的机器上跑）。
@@ -27,14 +34,16 @@ import os
 import pathlib
 import sys
 import time
+import urllib.parse
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "skill" / "scripts"))
 
 try:
-    import wx_fetch as wf          # 复用它的解析 / 落盘 / 常量，不重复实现
+    import wx_fetch as wf          # 微信页面：复用它的解析 / 落盘 / 常量
+    import web_fetch as wbf        # 普通网页：正文与元数据规则不同，用它的解析
 except Exception as e:             # noqa: BLE001
-    sys.exit("加载 wx_fetch 失败（它在 skill/scripts/ 下，应与本仓库一起存在）：%s" % e)
+    sys.exit("加载抓取脚本失败（wx_fetch / web_fetch 在 skill/scripts/ 下，应与本仓库一起存在）：%s" % e)
 
 
 # 微信把配图放在**正文容器之外**的图片容器里。实测（2026-10-07，小菜园那篇）：
@@ -66,15 +75,43 @@ _UI_NOISE_SELECTORS = [
     ".album_con",                         # 「收录于 xx」话题标签
     ".js_alert_confirm",                  # 确认弹窗
     ".qr_code_pc_outer",                  # 电脑端二维码推广
+    # ---- 普通站点通用噪声（2026-10-19 起渲染也服务非微信页面）----
+    # **只按标签名剥，不按 class 猜**：`.nav` / `.comment` 这类类名在不同站点上
+    # 含义相反，按类名删会把正文整段删掉。`header` 故意不删 —— article 内部的
+    # header 常放标题与摘要，删了会丢内容。
+    "nav", "footer", "aside", "form",
     "script", "style", "noscript",
 ]
 
 _DOM_BODY_JS = """
 (selectors) => {
-  const jc = document.querySelector('#js_content')
-          || document.querySelector('#js_image_content');
-  if (!jc) return null;
-  const clone = jc.cloneNode(true);      // 在副本上删，不动真实页面
+  // ① 微信：正文容器是固定的
+  let el = document.querySelector('#js_content')
+        || document.querySelector('#js_image_content');
+
+  // ② 普通站点：语义标签优先（博客 / 新闻站主流），多个候选取文字最多的
+  if (!el) {
+    const cands = [document.querySelector('article'),
+                   document.querySelector('main'),
+                   document.querySelector('[role=main]')].filter(Boolean);
+    if (cands.length) {
+      el = cands.sort((a, b) => (b.innerText || '').length
+                               - (a.innerText || '').length)[0];
+    }
+  }
+
+  // ③ 最后回退：文字 + 图最多的大块（纯图集页文字为 0，得靠图数赢）
+  if (!el) {
+    let best = null, bestScore = 0;
+    document.querySelectorAll('div, section').forEach(d => {
+      const s = (d.innerText || '').length + 60 * d.querySelectorAll('img').length;
+      if (s > bestScore) { best = d; bestScore = s; }
+    });
+    el = best;
+  }
+
+  if (!el) return null;
+  const clone = el.cloneNode(true);      // 在副本上删，不动真实页面
   clone.querySelectorAll(selectors.join(',')).forEach(e => e.remove());
   return clone.innerHTML;
 }
@@ -163,7 +200,14 @@ def main():
     html, body_html, extra_imgs = render_page(url, args.wait, args.timeout)
     elapsed = time.perf_counter() - t0
 
-    r = wf.parse_page(html, url, extra_img_urls=extra_imgs, body_html=body_html)
+    # 微信页面与普通网页的正文 / 元数据规则完全不同，各走各的解析：
+    # 微信认 `#js_content`、`js_name`、`var ct`；普通网页认 og / JSON-LD / `<time>`。
+    # 落盘仍是同一个 `save_stage`（下一行不变）—— 只分叉解析，不分叉落盘。
+    is_wx = urllib.parse.urlsplit(url).netloc.lower().endswith("mp.weixin.qq.com")
+    if is_wx:
+        r = wf.parse_page(html, url, extra_img_urls=extra_imgs, body_html=body_html)
+    else:
+        r = wbf.parse_web(html, url, body_html=body_html)
     if not r["ok"]:
         print("✗ 渲染后仍取不到内容：%s\n  %s" % (r["fail_reason"], r.get("detail") or ""))
         print("  渲染耗时 %.1fs，HTML %d 字节" % (elapsed, len(html)))

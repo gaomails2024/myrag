@@ -652,34 +652,10 @@ def parse_page(page, url, is_wx=None, extra_img_urls=None, body_html=None):
 
     body_len = len(md)
 
-    # 图片合辑的 md 只有「文案 + 图片占位」，长度天然可能低于门槛，
-    # 但只要图抓到了就是有效条目，不该被字数门槛卡成 not_article（2026-09-22 实测：
-    # 一条 9 图的合辑，md≈120 字 → 落 not_article，引导用户重新复制链接，是无效动作）。
-    album_ok = album is not None and bool(album["images"])
-    if body_len < MIN_BODY_CHARS and not album_ok:
-        if looks_like_verify(page):
-            return {"ok": False, "kind": kind, "fail_reason": "verify_page",
-                    "detail": ("%s返回了验证/异常页，稍后重试或换网络（不是链接错了）"
-                               % ("微信" if is_wx else "站点"))}
-        if looks_like_spa(page):
-            # 有壳无内容 = JS 渲染页面。**不是反爬、不是页面坏了**，静态抓取天生拿不到。
-            #
-            # 微信链接同样会这样（2026-09-24 实测）：直连返回的 2.6MB 页面里正文在
-            # JS 变量里，连 `id="js_content"` 都没有 —— 以前 `not is_wx` 把它挡在门外，
-            # 于是这类文章只能落 not_article（让用户「换个方式复制链接」，白折腾）。
-            # 渲染后正文完整可得（同日实测：同一条链接渲染后正常入库），所以放开。
-            return {"ok": False, "kind": kind, "fail_reason": "need_render",
-                    "detail": ("页面是 JS 渲染的（HTML 里只有外壳、正文为空），"
-                               "静态抓取拿不到内容。需用浏览器渲染后重取，"
-                               "见 SKILL.md「JS 渲染页面（need_render）」")}
-        if is_wx:
-            return {"ok": False, "kind": kind, "fail_reason": "not_article",
-                    "detail": ("微信域名但不是文章页，也没认出图片合辑；"
-                               "分享卡片请在微信里右上角「用浏览器打开」后重新复制链接")}
-        return {"ok": False, "kind": kind, "fail_reason": "parse_failed",
-                "detail": ("抓到了页面（%dB）但定位不到正文，可能需登录或页面结构特殊"
-                           % len(page.encode("utf-8", "ignore")))}
-
+    # ---- 元数据：标题 / 公众号 / 作者 / 发布时间 ----
+    # **必须取在判类之前**（2026-10-19）：「多图少字」分支要靠元数据判断这是不是一篇
+    # 正经文章 —— 正文没文字时，元数据是唯一能证明「它是文章、不是空壳」的东西。
+    # 以前这段在判类之后，等于判类的那一刻手里没有元数据可用。
     title = title or pick([r'<meta\s+property="og:title"\s+content="([^"]*)"',
                            r'var\s+msg_title\s*=\s*["\']([^"\']*)',
                            r"<title[^>]*>(.*?)</title>"], page)
@@ -702,6 +678,51 @@ def parse_page(page, url, is_wx=None, extra_img_urls=None, body_html=None):
         iso = pick([r'<meta\s+property="article:published_time"\s+content="([^"]*)"'], page)
         if iso:
             published = iso
+
+    # 图片合辑的 md 只有「文案 + 图片占位」，长度天然可能低于门槛，
+    # 但只要图抓到了就是有效条目，不该被字数门槛卡成 not_article（2026-09-22 实测：
+    # 一条 9 图的合辑，md≈120 字 → 落 not_article，引导用户重新复制链接，是无效动作）。
+    album_ok = album is not None and bool(album["images"])
+
+    # 「多图少字」放行判据（2026-10-19 新增）：正文几乎没文字，但**图在、元数据齐**。
+    # 这类页面以前只能落 need_render（让人去开浏览器重抓 —— 重抓回来照样没文字，白折腾一次）
+    # 或 not_article（让人「重新复制链接」—— 链接根本没问题，换了也一样）。
+    #
+    # **核心是正文没文字，图的张数不做门槛**（1 张也算）：是不是文章取决于元数据齐不齐，
+    # 不是图多不多。标题 / 公众号 / 发布时间三项都取到，才说明它不是空壳页。
+    # 图够不够格由 `img_urls` 自己管 —— 微信塞的引导关注图 / 表情在 L1 过滤那一环就剔掉了。
+    gallery_ok = bool(img_urls) and bool(title) and bool(source) and bool(published)
+
+    if body_len < MIN_BODY_CHARS and not album_ok:
+        # **验证页优先**：真验证页哪怕带图也不许入库（项目约定 §2.4「收到验证页必须拒收」）。
+        if looks_like_verify(page):
+            return {"ok": False, "kind": kind, "fail_reason": "verify_page",
+                    "detail": ("%s返回了验证/异常页，稍后重试或换网络（不是链接错了）"
+                               % ("微信" if is_wx else "站点"))}
+        elif gallery_ok:
+            # 照正常文章落盘，**不新增 kind**（仍是 wechat）：下游判类 / 分类不受影响，
+            # 只在 notes 里留痕，让人一眼看出这篇为什么文字这么少。
+            notes.append("多图少字（正文 %d 字 / %d 张图，内容主体是图）"
+                         % (_text_len(body) if body else 0, len(img_urls)))
+        elif looks_like_spa(page):
+            # 有壳无内容 = JS 渲染页面。**不是反爬、不是页面坏了**，静态抓取天生拿不到。
+            #
+            # 微信链接同样会这样（2026-09-24 实测）：直连返回的 2.6MB 页面里正文在
+            # JS 变量里，连 `id="js_content"` 都没有 —— 以前 `not is_wx` 把它挡在门外，
+            # 于是这类文章只能落 not_article（让用户「换个方式复制链接」，白折腾）。
+            # 渲染后正文完整可得（同日实测：同一条链接渲染后正常入库），所以放开。
+            return {"ok": False, "kind": kind, "fail_reason": "need_render",
+                    "detail": ("页面是 JS 渲染的（HTML 里只有外壳、正文为空），"
+                               "静态抓取拿不到内容。需用浏览器渲染后重取，"
+                               "见 SKILL.md「JS 渲染页面（need_render）」")}
+        elif is_wx:
+            return {"ok": False, "kind": kind, "fail_reason": "not_article",
+                    "detail": ("微信域名但不是文章页，也没认出图片合辑、也不像多图少字文章；"
+                               "分享卡片请在微信里右上角「用浏览器打开」后重新复制链接")}
+        else:
+            return {"ok": False, "kind": kind, "fail_reason": "parse_failed",
+                    "detail": ("抓到了页面（%dB）但定位不到正文，可能需登录或页面结构特殊"
+                               % len(page.encode("utf-8", "ignore")))}
 
     return {"ok": True, "kind": kind, "title": title, "source": source,
             "author": author, "published_at": published,
