@@ -1,0 +1,24 @@
+# MyRag 云端只读版 systemd 服务（由 scripts/cloud_deploy.sh 安装到服务器）
+# 注意：端口写死在 ExecStart 里（8766）；改端口要同时改 cloud/.env 的
+# MYRAG_CLOUD_PORT 与本文件，然后 systemctl daemon-reload && restart myrag-cloud
+
+[Unit]
+Description=MyRag Cloud (read-only knowledge sharing)
+After=network.target
+
+[Service]
+Type=simple
+# 以 ubuntu 运行（/opt/myrag 属主是 ubuntu）：最小权限，绑定 8766 也无需 root
+User=ubuntu
+WorkingDirectory=/opt/myrag
+ExecStart=/opt/myrag/.venv/bin/uvicorn cloud.app:app --host 0.0.0.0 --port 8766
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+# 温和加固：不给 root 新特权、私有 /tmp。不做更重的沙箱——机器上跑着别的系统，
+# 加固过头反而容易把服务搞挂；真正的防线是口令与只读数据库连接。
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

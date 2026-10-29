@@ -1,0 +1,11 @@
+# 云端只读版运行依赖（与本地版 requirements.txt 独立——云端不装 torch / FlagEmbedding / transformers）
+# Python >= 3.10（代码用了 str | None 联合类型语法）
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.0
+numpy>=1.26
+scipy>=1.11
+sqlite-vec>=0.1.6
+markdown-it-py>=3.0
+httpx>=0.27
+requests>=2.31

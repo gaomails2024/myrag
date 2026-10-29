@@ -69,6 +69,9 @@ def init_db() -> None:
     try:
         conn.executescript(sql)
         _migrate(conn)
+        # 依赖 _migrate 新增列的索引必须放在这里（schema.sql 里建会撞 no such column）
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_wiki_concepts_topic "
+                     "ON wiki_concepts(topic_id)")
         conn.commit()
     finally:
         conn.close()
@@ -89,6 +92,26 @@ def _migrate(conn) -> None:
         conn.execute("ALTER TABLE categories ADD COLUMN display TEXT DEFAULT ''")
     if cols and "principles" not in cols:
         conn.execute("ALTER TABLE categories ADD COLUMN principles TEXT DEFAULT ''")
+    # wiki_pages.concept_id：概念页与话题综述页共用一张表，靠这一列区分。
+    # 为什么必须走 _migrate：schema.sql 里那句 CREATE TABLE IF NOT EXISTS 在表已存在时
+    # **不会**加列，老库（v3.2 之前建的）不加这句就永远拿不到 concept_id。
+    try:
+        wcols = {r["name"] for r in conn.execute("PRAGMA table_info(wiki_pages)")}
+    except Exception:
+        wcols = set()
+    if wcols and "concept_id" not in wcols:
+        conn.execute("ALTER TABLE wiki_pages ADD COLUMN concept_id INTEGER")
+    # wiki_concepts.name_key：概念判重键。同一个概念的多种写法（「AI Agent」/
+    # 「AI-Agent」）要合并成一条，否则既分裂节点又撞 slug 唯一约束。
+    # 唯一性靠 schema.sql 里的唯一索引（ADD COLUMN 不能带约束）。
+    try:
+        ccols = {r["name"] for r in conn.execute("PRAGMA table_info(wiki_concepts)")}
+    except Exception:
+        ccols = set()
+    if ccols and "name_key" not in ccols:
+        conn.execute("ALTER TABLE wiki_concepts ADD COLUMN name_key TEXT")
+    if ccols and "topic_id" not in ccols:
+        conn.execute("ALTER TABLE wiki_concepts ADD COLUMN topic_id INTEGER")
 
 
 # ---------------------------------------------------------------- 通用助手

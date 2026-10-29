@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from markdown_it import MarkdownIt
 from pydantic import BaseModel, Field
 
-from . import config, db, embed, ingest, search, verify
+from . import config, db, embed, ingest, search, verify, wiki, wiki_concepts
 
 # 异常必须留**堆栈**，不能只把「类名: 消息」丢给 HTTP 响应。
 #
@@ -751,6 +751,9 @@ def api_structure():
                WHERE a.status <> 'failed' AND NOT EXISTS (
                    SELECT 1 FROM article_themes t WHERE t.article_id = a.id)
                ORDER BY a.id""").fetchall()
+        # 概念归属查询必须在 with 内 —— 之前放在块外，conn 已关闭直接 500（实测）
+        concept_list = wiki_concepts.concept_rows(conn)
+        topic_names = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM themes")}
 
     by_id = {}
     for t in themes:
@@ -777,6 +780,22 @@ def api_structure():
         if node["parent"] and node["parent"] in by_id:
             by_id[node["parent"]].setdefault("children", []).append(node)
 
+    # **把概念挂进话题节点**（主题树长出第四层：领域→板块→话题→概念）。
+    # 概念的归属存在 wiki_concepts.topic_id，一次查询按话题分组，不逐节点查。
+    by_topic = {}
+    for r in concept_list:
+        if r.get("topic_id"):
+            by_topic.setdefault(r["topic_id"], []).append(
+                {"name": r["name"], "slug": r["slug"], "definition": r["definition"] or "",
+                 "article_count": r["article_count"], "compiled": bool(r["page_id"])})
+    for node in tree:
+        stack = [node]
+        while stack:
+            n = stack.pop()
+            if n.get("level") == 3 and n["id"] in by_topic:
+                n["concepts"] = by_topic[n["id"]]
+            stack.extend(n.get("children") or [])
+
     return {"ready": True, "built_at": meta.get("catalog_built_at"),
             "n_articles": int(meta.get("n_articles") or 0),
             "n_topics": int(meta.get("n_topics") or 0),
@@ -784,6 +803,89 @@ def api_structure():
             "unmounted": [{"id": u["id"], "title": u["title"] or "",
                            "category": u["category"], "date": u["d"]}
                           for u in unmounted]}
+
+
+# ================================================================ 知识编译 Wiki（PRD §5.7）
+#
+# **只读**：编译由 `scripts/wiki_build.py` 独立进程完成（一次要跑几十秒到几分钟，
+# 放进后端就得引入任务队列与进度轮询），所以这里只提供两个查询端点，没有写接口。
+#
+# 话题树**不新增端点**：前端复用已加载的 /api/structure，按 topic_id 把
+# 「已编译 / 未编译」标到对应话题上 —— 省一个端点、零重复 SQL。
+
+# [R3] → 可点角标。正文里的 [Rn] 在 commonmark 下原样保留（[Rn] 不是合法的
+# 链接引用定义，没有对应的 [Rn]: 行），所以这层替换只会动角标本身；
+# 而 n 在写库前已强校验过一定落在素材篇数内，不会出现点不开的死角标。
+_WIKI_REF = re.compile(r"\[R(\d+)\]")
+
+
+def _wiki_html(content_md: str) -> str:
+    html = _md.render(content_md or "")
+    return _WIKI_REF.sub(
+        lambda m: '<a class="wref" data-r="%s" title="看这条的出处">%s</a>'
+                  % (m.group(1), m.group(1)),
+        html)
+
+
+@app.get("/api/wiki/concepts")
+def api_wiki_concepts():
+    """概念清单（Wiki 的导航单元）。
+
+    **必须声明在 `/api/wiki/{slug}` 之前** —— FastAPI 按声明顺序匹配，
+    否则 "concepts" 会被当成 slug 吃掉（实测会返回 404 page not found）。
+    """
+
+    with db.conn_ctx() as conn:
+        rows = wiki_concepts.concept_rows(conn)
+        tnames = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM themes")}
+    for r in rows:
+        r["topic_name"] = tnames.get(r.get("topic_id")) or ""
+    return {"ready": bool(rows), "concepts": rows,
+            "compiled": sum(1 for r in rows if r["page_id"]),
+            "pending_total": sum(r["pending"] or 0 for r in rows)}
+
+
+@app.get("/api/wiki/graph")
+def api_wiki_graph():
+    """概念网（节点 + 边）。只含已编译的概念 —— 点不开的节点不进网。"""
+
+    with db.conn_ctx() as conn:
+        return wiki_concepts.graph(conn)
+
+
+@app.get("/api/wiki")
+def api_wiki_list():
+    """已编译的知识页清单（不含正文）。ready=False 表示一个都还没编译。"""
+    with db.conn_ctx() as conn:
+        rows = wiki.page_rows(conn)
+    return {"ready": bool(rows), "pages": rows}
+
+
+@app.get("/api/wiki/{slug}")
+def api_wiki_detail(slug: str):
+    """一页知识页：正文 html + 引用（带原文标题，角标与文献表共用）+ 双链。
+
+    **话题页与概念页走同一个端点**（slug 以 `c-` 开头的是概念页）——
+    两种形态的正文结构、引用、双链完全一样，不该为它们开两套接口。
+    概念页额外返回 `concept`（概念元信息）与 `related`（互链，含入边）。
+    """
+
+    with db.conn_ctx() as conn:
+        d = wiki_concepts.concept_page_detail(conn, slug)
+    if not d:
+        raise HTTPException(status_code=404, detail="wiki page not found")
+    page = {k: d.get(k) for k in
+            ("slug", "title", "summary", "topic_id", "concept_id", "source_count",
+             "model", "prompt_version", "status", "built_at", "updated_at")}
+    refs = []
+    for r in d["refs"]:
+        r = dict(r)
+        r["date"] = (r.get("published_at") or "")[:10] or None
+        refs.append(r)
+    return {"page": page, "topic_path": d["topic_path"],
+            "content_html": _wiki_html(d["content_md"]),
+            "refs": refs, "links": d["links"],
+            "concept": d.get("concept"), "related": d.get("related") or []}
 
 
 @app.get("/api/tags")

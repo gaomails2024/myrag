@@ -14,6 +14,12 @@
     MYRAG_STAGE_DIR     抓取落地区（默认 <MYRAG_DATA_DIR>/_stage）
     MYRAG_MODEL_PATH    BGE-M3 权重目录（默认自动探测 modelscope 缓存）
     GITHUB_TOKEN        GitHub API token（可选，只为提高限额）
+
+    以下仅「知识编译 Wiki」用（PRD §5.7），**不配也不影响检索与入库**：
+    MYRAG_LLM_BASE_URL  OpenAI 兼容端点，如 https://api.deepseek.com/v1
+    MYRAG_LLM_API_KEY   该端点的密钥（永不入库、不进 git）
+    MYRAG_LLM_MODEL     模型名（默认 gpt-4o-mini）
+    MYRAG_LLM_MAX_CHARS 单次编译素材字数上限（默认 60000）
 """
 
 from __future__ import annotations
@@ -83,7 +89,8 @@ SKILL_DIR = ROOT / "skill"                   # 仓库自带 Skill 包（安装�
 # ---------------------------------------------------------------- 服务
 HOST = _env("MYRAG_HOST", "127.0.0.1")
 PORT = _env_int("MYRAG_PORT", 8765)
-VERSION = "3.1"          # 与 PRD.md 版本表同步；2026-10-07 由 2.1 升到 3.1（当日大改：抓取根治 + 质检 + 换行）
+VERSION = "3.3"          # 与 PRD.md 版本表同步；2026-10-13 由 3.1→3.2（新增知识编译 Wiki：话题综述页）
+                        # →3.3（概念层：概念发现 / 向量归属 / 互链织网 / 增量生长，Wiki 页签改为三形态）
 
 # ---------------------------------------------------------------- Embedding（PRD §7.1）
 EMBED_MODEL_ID = "BAAI/bge-m3"
@@ -249,6 +256,45 @@ GITHUB_TIMEOUT = 20
 
 # ---------------------------------------------------------------- 上传/文本限制
 MAX_INGEST_TEXT_CHARS = 200000
+
+# ---------------------------------------------------------------- LLM（Wiki 编译用，PRD §5.7）
+#
+# 为什么要它：整个 MyRag 到 3.1 为止**没有任何大模型调用** —— 判类、摘要、标签
+# 都是 Agent（Skill）在外面做的，后端只有本地 embedding/rerank。Wiki 编译需要
+# 一个能把 20~30 篇素材读成一篇成品的模型，所以这是第一次引入外部 LLM。
+#
+# **未配置也不影响系统**：这四项全是可选，wiki_build.py 会在调用前检查并给
+# 人话提示（见 llm.py 的 missing_reason()）。绝不写死 key，只从 .env / 环境变量读。
+# 走 OpenAI 兼容协议（/chat/completions），所以 DeepSeek / Qwen / GPT 都能换，只改 base_url。
+LLM_BASE_URL = _env("MYRAG_LLM_BASE_URL")          # 如 https://api.deepseek.com/v1
+LLM_API_KEY = _env("MYRAG_LLM_API_KEY")            # 密钥，永不入库、不进 git
+LLM_MODEL = _env("MYRAG_LLM_MODEL", "gpt-4o-mini")
+LLM_TIMEOUT = _env_int("MYRAG_LLM_TIMEOUT", 300)   # 编译一篇文章要读 20~30 篇素材，比检索慢得多
+
+# 单次回复的 token 上限。
+# **为什么必须够大**：实测 deepseek-flash 在 31 篇素材（约 27k token 输入）这种任务上，
+# 会先花掉 7999 个 token 做推理才动笔，而默认 8000 的上限被推理吃光 →
+# finish_reason=length、**正文一个字都没输出**，JSON 自然不完整。
+# 页面目标 3000~6000 字中文 ≈ 3000~6000 token，留一倍余量。
+LLM_MAX_TOKENS = _env_int("MYRAG_LLM_MAX_TOKENS", 16000)
+
+# 推理（thinking）开关：off / on / auto。
+#   off  → 请求里带 thinking:{"type":"disabled"}（DeepSeek 系的做法），
+#          **默认选它**：我们要的是结构化综述，不是数学推理，
+#          关掉后推理不再吃 token 预算，输出更快也更便宜。
+#   on   → 带 thinking:{"type":"enabled"}。
+#   auto → **完全不发这个字段**（OpenAI / Qwen 等标准端点不认它，发了会 400）。
+# 换到不认 thinking 的供应商时把它设成 auto 即可。
+LLM_THINKING = _env("MYRAG_LLM_THINKING", "off").strip().lower()
+
+# 单次编译送进模型的素材总字数上限。超出时按 article_themes.weight 从低到高截断，
+# **并在终端逐条列出被截掉的文章**（不静默丢料）。
+LLM_MAX_CHARS = _env_int("MYRAG_LLM_MAX_CHARS", 60000)
+
+# 提示词模板的默认位置。**故意放在项目里而不是 data/**：data/ 不进 git，
+# 提示词是要跟着代码走的（换机器 clone 下来就能改）。
+PROMPT_DIR = ROOT / "prompts"
+PROMPT_DEFAULT = PROMPT_DIR / "wiki_compile_v1.md"
 
 # ---------------------------------------------------------------- 抓取脚本（可选）
 # URL 规范化（canon）必须"查重与入库同一实现"（PRD §5.2）。首选路径：

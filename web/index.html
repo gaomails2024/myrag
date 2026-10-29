@@ -173,6 +173,9 @@ main{padding:24px 20px; max-width:1180px; margin:0 auto}
 }
 /* 与其他卡片一致：hover 只描边，不改底色 */
 .card:hover{box-shadow:inset 0 0 0 1px var(--hover-line)}
+/* 不可点击的总数卡：去掉手型光标与 hover 描边 */
+.card.static{cursor:default}
+.card.static:hover{box-shadow:none}
 .card .k{display:flex; align-items:center; gap:6px; color:var(--text-3);
   font-size:11px; font-weight:700; letter-spacing:.08em}
 /* 数字是主数据，给最大字重与最紧字距（明度/字重即层级） */
@@ -581,6 +584,44 @@ details.spare .kvgrid{font-size:12.5px}
   padding:0 5px;margin-left:7px;white-space:nowrap}
 .ta-m,.ta-d{color:var(--text-3);font-size:11.5px;white-space:nowrap}
 .ta-s{color:var(--text-3);font-size:11.5px;text-align:right;white-space:nowrap}
+/* ---- Wiki 页签（模块 11）：只补 Wiki 特有的 5 个元素，其余全部复用上面那套 ---- */
+/* 「已编译」小圆点：复用 .chip .dot 的写法与 --ok 灰绿，不引第二套配色 */
+.tw2-ok{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
+/* 引用角标 [Rn]：正文里的上标小数字，是「可点回原文」的入口，必须一眼看得出可点 */
+.wref{display:inline-block;min-width:15px;height:15px;line-height:15px;text-align:center;
+  margin:0 1px;padding:0 3px;font-size:10.5px;color:var(--c0);background:var(--c0-soft);
+  border:1px solid var(--c0-soft);border-radius:4px;text-decoration:none;vertical-align:1px;
+  cursor:pointer;font-variant-numeric:tabular-nums}
+.wref:hover{background:var(--c0);color:#fff;border-color:var(--c0)}
+.wk-meta{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:10px 0 4px;
+  font-size:11.5px;color:var(--text-3)}
+.wk-meta .bdg{font-weight:400}
+.wk-q{font-size:12px;color:var(--text-2);border-left:2px solid var(--hair);
+  padding-left:8px;margin-top:3px;line-height:1.5}
+.wk-ord{color:var(--c0);font-weight:600;font-size:11.5px;white-space:nowrap}
+/* 概念页页头：定义 + 统计。比话题页多一行，因为概念页必须先说清「这个概念是什么」 */
+.wk-concept{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.wk-def{font-size:13.5px;color:var(--text-2);line-height:1.55;flex:1;min-width:240px}
+.wk-stats{font-size:11.5px;color:var(--text-3);white-space:nowrap}
+/* 「未编译」标记：空心圆，比灰字更醒目一点，又不像实心点那样像「已完成」 */
+.tw2-wait{color:var(--text-3);font-size:10px;width:10px;text-align:center;flex:none}
+/* 待更新标记（+N 篇新文章没纳入这一页） */
+.wk-pending{color:var(--warn);font-size:10.5px;margin-left:5px;white-space:nowrap}
+/* 概念网：canvas + 右侧信息面板。不用 flex 布局 canvas，避免拉伸变形 */
+.wk-graph-wrap{margin-top:4px}
+.wk-graph-hint{font-size:11.5px;color:var(--text-3);margin-bottom:8px}
+.wk-graph-body{display:flex;gap:16px;align-items:flex-start}
+.wk-canvas{background:#FFFFFF;border:1px solid var(--border);
+  border-radius:var(--radius);cursor:pointer;flex:none;max-width:100%}
+.wk-graph-side{flex:1;min-width:180px;background:var(--card-surface);
+  border:1px solid var(--border);border-radius:var(--radius);padding:14px 12px}
+.wk-graph-side .btn{margin-top:10px}
+.tw2-concepts{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.tw2-concept{font-size:11px;color:var(--c0);background:var(--c0-soft);
+  border-radius:5px;padding:2px 7px;text-decoration:none;cursor:pointer}
+.tw2-concept:hover{background:var(--c0);color:#fff;text-decoration:none}
+.tw2-concept.dim{color:var(--text-3);background:var(--panel-2);cursor:default}
+.tw2-concept.dim i{font-style:normal;font-size:9.5px;opacity:.7}
 .cl-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px}
 .cl-meta{font-size:12.5px;color:var(--text-2)}
 .cl-meta b{color:var(--text)}
@@ -701,6 +742,10 @@ details.spare .kvgrid{font-size:12.5px}
   <button class="tab" data-act="tab" data-view="tagmerge">
     <svg class="ico" viewBox="0 0 24 24"><path d="M4 7h7M4 12h5M4 17h7"/><path d="m14 8 3-3 3 3M17 5v12"/><path d="M14 16h6"/></svg>术语归并
   </button>
+  <!-- Wiki：知识编译页。**只读**（编译在 scripts/wiki_build.py 里跑），与主题树并列 -->
+  <button class="tab" data-act="tab" data-view="wiki">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M4.5 5.5h6a2 2 0 0 1 2 2v11a2 2 0 0 0-2-2h-6z"/><path d="M19.5 5.5h-6a2 2 0 0 0-2 2v11a2 2 0 0 1 2-2h6z"/></svg>Wiki
+  </button>
 </nav>
 
 <main>
@@ -717,6 +762,7 @@ details.spare .kvgrid{font-size:12.5px}
   <section class="view" id="view-tree"></section>
   <section class="view" id="view-tagcloud"></section>
   <section class="view" id="view-tagmerge"></section>
+  <section class="view" id="view-wiki"></section>
 </main>
 
 <!-- ============================================================ 详情抽屉（模块 8） -->
@@ -1181,6 +1227,11 @@ async function renderOverview(){
     </div>
 
     <div class="cards">
+      <div class="card static">
+        <div class="k">文章总数</div>
+        <div class="v">${c.total || 0}</div>
+        <div class="foot">全部分类合计（含存量已删分类）</div>
+      </div>
       ${state.cats.map(cat => `
         <button class="card" data-act="tab" data-view="cat-${attr(cat.key)}">
           <div class="k">${esc(cat.name)} · ${esc(cat.prefix)}</div>
@@ -1952,6 +2003,7 @@ function switchView(v){
   else if (v === 'tree')         renderTree();
   else if (v === 'tagcloud')     renderTagCloud();
   else if (v === 'tagmerge')     renderTagMerge();
+  else if (v === 'wiki')          renderWiki();
   else if (v.indexOf('cat-') === 0) renderCategory(v.slice(4));
   window.scrollTo(0, 0);
 }
@@ -2021,6 +2073,17 @@ function paintTree(box){
           ? '<div class="chips">' + cur.keywords.map(k => '<span class="chip">' + esc(k) + '</span>').join('') + '</div>'
           : '') +
         (kids ? '<div class="tw2-subs">' + kids + '</div>' : '') +
+        // **话题视图正文里显示本话题的概念** —— 之前概念只挂在「话题卡」上
+        //（从板块往下看才可见），用户点进话题后反而看不到，等于白挂。
+        (cur.level === 3 && cur.concepts && cur.concepts.length
+          ? '<div class="chips" style="margin:14px 0 4px"><span class="sub">本话题的概念（'
+            + cur.concepts.length + '）：</span>'
+            + cur.concepts.map(c => '<a class="chip" href="#"'
+              + (c.compiled ? ' data-act="wiki-concept" data-wslug="' + attr(c.slug) + '"'
+                            : ' style="color:var(--text-3)"')
+              + ' title="' + attr(c.definition || '') + '">'
+              + esc(c.name) + (c.compiled ? '' : '（未编译）') + '</a>').join('')
+            + '</div>' : '') +
         (unmounted ? unmounted : '') +
         arts +
       '</div>' +
@@ -2097,6 +2160,12 @@ function filterTree(box, raw){
   if (f){ f.value = raw; f.focus(); f.setSelectionRange(raw.length, raw.length); }
 }
 
+/* TREE_DOT：要在话题行上标一个小圆点的节点 id 集合。
+   Wiki 页签用它标「这个话题已编译」。做成一个全局标注而不是复制一份 treeNavHtml ——
+   复制就会有两份树渲染逻辑，以后改层级样式必然漏改一处。
+   主题树页签不设它（渲染前会置空），行为与改动前完全一致。 */
+let TREE_DOT = null;
+
 function treeNavHtml(cur, map){
   // 祖先链始终展开（要看得见自己在哪），但**不含当前节点自己** ——
   // 含了它会把「收起当前节点」这个操作立刻撤销掉，表现为点箭头收不起来（2026-10-07 实测）。
@@ -2123,6 +2192,7 @@ function treeNavHtml(cur, map){
           (open ? '−' : '+') + '</span>'
         : '<span class="tw2-tw leaf"></span>') +
       '<span class="tw2-nm">' + esc(n.name) + '</span>' +
+      (TREE_DOT && TREE_DOT.has(n.id) ? '<span class="tw2-ok" title="已编译成 Wiki 页"></span>' : '') +
       '<span class="tw2-c">' + n.count + '</span></a>' + kidsHtml + '</div>';
   }).join('');
   return '<div class="tw2-nav">' + walk(TREE.tree, 0) + '</div>';
@@ -2131,9 +2201,18 @@ function treeNavHtml(cur, map){
 function treeCardHtml(n, map){
   const cls = n.level === 1 ? 'c1' : n.level === 2 ? 'c2' : 'c3';
   const sub = n.summary ? esc(n.summary.length > 46 ? n.summary.slice(0,46) + '…' : n.summary) : '';
+  // **概念层（第四层）**：话题下的概念直接列在卡片里，点名字开概念页 ——
+  // 用户要的「几个大方向 → 逐层深入到精华」的主路径。
+  const concepts = (n.concepts || []).map(c =>
+    '<a href="#" class="tw2-concept' + (c.compiled ? '' : ' dim') + '"'
+    + (c.compiled ? ' data-act="wiki-concept" data-wslug="' + attr(c.slug) + '"' : '')
+    + ' title="' + attr(c.definition || '') + '">'
+    + esc(c.name) + (c.compiled ? '' : ' <i>未编译</i>') + '</a>').join('');
   return '<div class="tw2-card ' + cls + '" data-topen="' + n.id + '">' +
-    '<div class="tw2-cn">' + esc(n.name) + '<span class="tw2-cc">' + n.count + ' 篇</span></div>' +
-    (sub ? '<div class="tw2-cs">' + sub + '</div>' : '') + '</div>';
+    '<div class="tw2-cn">' + esc(n.name) + '<span class="tw2-cc">' + n.count + ' 篇'
+    + (n.concepts ? ' · ' + n.concepts.length + ' 个概念' : '') + '</span></div>' +
+    (sub ? '<div class="tw2-cs">' + sub + '</div>' : '') +
+    (concepts ? '<div class="tw2-concepts">' + concepts + '</div>' : '') + '</div>';
 }
 
 function articleTableHtml(node, list){
@@ -2761,6 +2840,537 @@ async function delOne(id){
   } catch(e){ showErr(e); }
 }
 
+/* ================================================================ 模块 12：知识编译 Wiki（PRD §5.7）
+
+   **这一页有三种东西，是三个不同的东西，不要混成一种**：
+
+   ① **概念页**（主体）：页面单位是**概念** —— 有名有姓的术语（Rerank / 认知负荷 /
+    FDE / 本体建模），由 LLM 从素材里发现，不是人预先定的。一页回答
+    「**库里所有文章怎么谈这个概念**」，页与页之间**连成网**。这是 Karpathy
+    LLM Wiki 的形态：知识在摄入期合成、随素材增长持续复利。
+
+   ② **话题综述页**（辅助）：页面单位是**人工目录里的话题**（主题树的 39 个话题），
+    一页回答「这一批文章整体讲了什么」。它是**归纳**，粒度粗、篇数多。
+    概念页是**聚焦**，粒度细、能连成网。两种形态分工不同，都留着。
+
+   ③ **概念网**：概念之间的关系图。点节点跳页面。
+
+   引用（[Rn] 角标）在两种页面里都必须在 —— 点一下能读到原文，这是唯一不可妥协的。*/
+let WIKI = null, WIKI_CUR = null, WIKI_D = null;
+let WIKI_CONCEPTS = null, WIKI_MODE = 'concept';   // concept | topic | graph
+
+async function renderWiki(force){
+  const box = $('#view-wiki');
+  if (WIKI && WIKI_CONCEPTS && !force){ paintWiki(box); return; }
+  box.innerHTML = '<div class="empty">正在读取知识页…</div>';
+  try {
+    const cs = await api('/api/wiki/concepts');
+    const pages = await api('/api/wiki');
+    WIKI_CONCEPTS = cs;
+    WIKI = pages;
+    if (WIKI_MODE === 'graph' && !WIKI.graph){
+      WIKI.graph = await api('/api/wiki/graph');
+    }
+    if (!cs.ready && !pages.ready){
+      box.innerHTML = '<div class="empty">还没有编译过任何知识页。<br><br>'
+        + 'Wiki 把素材编译成带引用的成品页，两条路：<br>'
+        + '<code>wiki_build.py concepts discover</code> ← 从素材里发现概念（Wiki 形态）<br>'
+        + '<code>wiki_build.py concepts compile</code> ← 批量编译概念页<br>'
+        + '<code>wiki_build.py topics</code> ← 话题清单，再 <code>build &lt;slug&gt;</code></div>';
+      return;
+    }
+    if (WIKI_MODE === 'concept' && !WIKI_D){
+      const first = (cs.concepts || []).find(c => c.page_id) || (cs.concepts || [])[0];
+      if (first) await loadWikiDetail(first.slug);
+    }
+    // 话题综述形态要用主题树。**没缓存就去拉，不能当成「结构没建」** ——
+    // TREE 只有打开过「逻辑主题树」页签才会加载，而结构其实一直都在
+    // （56 个节点 / 1033 篇全部归类）。曾经在这里直接报「主题结构还没建」，
+    // 用户第一次点「话题综述」就看到这句误报（实测）。
+    if (WIKI_MODE === 'topic' && !TREE){
+      const d = await api('/api/structure');
+      if (d && d.ready){
+        TREE = d;
+        if (!TREE_CUR) TREE_CUR = d.tree[0] ? d.tree[0].id : null;
+        if (!WIKI_CUR){
+          const p = (WIKI.pages || []).find(x => x.topic_id);
+          WIKI_CUR = p ? p.topic_id : TREE_CUR;
+        }
+        const first = (WIKI.pages || []).find(x => x.topic_id === WIKI_CUR);
+        await loadWikiDetail(first ? first.slug : null);
+      } else {
+        box.innerHTML = '<div class="empty">主题结构确实还没建：<br>'
+          + '<code>scripts/structure.py profiles</code> → <code>mount</code> → '
+          + '<code>apply</code><br>（apply 之后还要 '
+          + '<code>wiki_build.py rebind --after</code> 把 Wiki 页挂回话题）</div>';
+        return;
+      }
+    }
+    paintWiki(box);
+  } catch(e){ box.innerHTML = '<div class="empty">读取失败：' + esc(e.message || e) + '</div>'; }
+}
+
+async function loadWikiDetail(slug){
+  WIKI_D = null;
+  if (!slug) return;
+  try { WIKI_D = await api('/api/wiki/' + encodeURIComponent(slug)); }
+  catch(e){ WIKI_D = { error: e.message || String(e) }; }
+}
+
+function paintWiki(box){
+  if (WIKI_MODE === 'graph'){ paintWikiGraph(box); return; }
+  if (WIKI_MODE === 'topic' && (!TREE || !TREE.tree || !TREE.tree.length)){
+    // TREE 已在 renderWiki 里拉过；到这里还空就是**真的**没有结构。
+    box.innerHTML = '<div class="empty">主题结构还没建：先跑 '
+      + '<code>scripts/structure.py profiles</code> → <code>mount</code> → '
+      + '<code>apply</code></div>';
+    return;
+  }
+  const nav = WIKI_MODE === 'concept' ? conceptNavHtml() : topicNavHtml();
+
+  box.innerHTML =
+    '<div class="tw2">' +
+      '<div class="tw2-side">' +
+        '<input class="tw2-find" id="wikiFind" placeholder="'
+          + (WIKI_MODE === 'concept' ? '找概念（如：Rerank、本体）' : '找话题（同左侧主题树）') + '">' +
+        wikiModeBar() + nav +
+      '</div>' +
+      '<div class="tw2-main">' + wikiMainHtml() + '</div>' +
+    '</div>';
+
+  box.querySelectorAll('[data-wmode]').forEach(el => el.onclick = ev => {
+    ev.preventDefault();
+    WIKI_MODE = el.dataset.wmode;
+    WIKI_D = null;
+    if (WIKI_MODE === 'graph' && !(WIKI && WIKI.graph)){
+      api('/api/wiki/graph').then(g => { WIKI.graph = g; paintWiki(box); });
+      return;
+    }
+    if (WIKI_MODE === 'concept'){
+      const first = ((WIKI_CONCEPTS && WIKI_CONCEPTS.concepts) || [])
+        .find(c => c.page_id);
+      if (first) loadWikiDetail(first.slug).then(() => paintWiki(box));
+      return;
+    }
+    // 话题综述：走 renderWiki 重载（它会去拉 TREE；paintWiki 是同步的、拉不了）
+    renderWiki(true);
+  });
+  box.querySelectorAll('[data-wc]').forEach(el => el.onclick = ev => {
+    ev.preventDefault(); goWikiSlug(el.dataset.wslug);
+  });
+  box.querySelectorAll('[data-topen]').forEach(el => el.onclick = ev => {
+    ev.preventDefault();
+    const id = +el.dataset.topen;
+    TREE_OPEN.add(id);                 // 与主题树同一份折叠状态
+    goWikiTopic(id);
+  });
+  box.querySelectorAll('[data-ttog]').forEach(el => el.onclick = ev => {
+    ev.preventDefault(); ev.stopPropagation();
+    const id = +el.dataset.ttog;
+    if (TREE_OPEN.has(id)) TREE_OPEN.delete(id); else TREE_OPEN.add(id);
+    paintWiki(box);
+  });
+  box.querySelectorAll('[data-tnode]').forEach(el => el.onclick = ev => {
+    ev.preventDefault(); goWikiTopic(+el.dataset.tnode);
+  });
+  box.querySelectorAll('[data-wslug]').forEach(el => el.onclick = ev => {
+    ev.preventDefault();
+    if (el.dataset.wmode) WIKI_MODE = el.dataset.wmode;
+    goWikiSlug(el.dataset.wslug);
+  });
+
+  // 角标接回文献表：后端渲染出来的 <a class="wref" data-r="N"> 只有编号，
+  // 这里补上 data-act="detail" data-id，于是**复用事件委托里现成的 case 'detail'**，
+  // 不新增点击处理（也保证角标与文献表走的是同一个开抽屉路径）。
+  const byOrd = {};
+  ((WIKI_D && WIKI_D.refs) || []).forEach(r => { byOrd[r.ord] = r.id; });
+  $$('.wref[data-r]', box).forEach(a => {
+    const id = byOrd[+a.dataset.r];
+    if (!id){ a.removeAttribute('data-r'); return; }   // 对不上就退回纯文本
+    a.href = '#'; a.setAttribute('data-act', 'detail'); a.setAttribute('data-id', id);
+  });
+
+  const find = $('#wikiFind');
+  if (find) find.oninput = () => {
+    const q = (find.value || '').trim().toLowerCase();
+    if (WIKI_MODE === 'concept'){
+      $$('#view-wiki .tw2-row').forEach(el => {
+        el.style.display = !q || (el.dataset.wname || '').indexOf(q) >= 0 ? '' : 'none';
+      });
+    } else {
+      filterTree(box, find.value);
+    }
+  };
+}
+
+function wikiModeBar(){
+  const item = (mode, label) =>
+    '<button class="seg' + (WIKI_MODE === mode ? ' on' : '') +
+    '" data-wmode="' + mode + '">' + label + '</button>';
+  return '<div style="display:flex;gap:5px;margin:0 0 10px">' + item('concept', '概念')
+    + item('topic', '话题综述') + item('graph', '概念网') + '</div>';
+}
+
+/* 概念清单：不是树（概念之间没有上下级），是按成员数排序的列表 + 搜索。
+   每行：状态点 · 概念名 · 成员篇数。没编译的不给链接（点了没反应比不给更让人困惑）。*/
+function conceptNavHtml(){
+  const cs = (WIKI_CONCEPTS && WIKI_CONCEPTS.concepts) || [];
+  if (!cs.length){
+    return '<div class="empty" style="padding:18px 8px">还没有概念。<br>'
+      + '<code>wiki_build.py concepts discover</code></div>';
+  }
+  const openId = WIKI_D && WIKI_D.concept ? WIKI_D.concept.id : null;
+  const rows = cs.map(c => {
+    const canOpen = !!c.page_id;
+    const dot = canOpen ? '<span class="tw2-ok" title="已编译成知识页"></span>'
+      : '<span class="tw2-wait" title="还没编译">○</span>';
+    const nm = '<span class="tw2-nm" style="color:' + (canOpen ? 'var(--text)' : 'var(--text-3)')
+      + ';font-weight:' + (c.id === openId ? 700 : 500) + '">' + esc(c.name) + '</span>';
+    const pend = c.pending ? '<span class="wk-pending" title="有新文章待纳入">+' + c.pending + '</span>' : '';
+    return '<a href="#" class="tw2-row' + (c.id === openId ? ' on' : '') + '"'
+      + (canOpen ? ' data-wc="1" data-wslug="' + attr(c.slug) + '"' : '')
+      + ' data-wname="' + attr(((c.name || '') + ' ' + (c.definition || '')).toLowerCase()) + '">'
+      + dot + nm + pend + '<span class="tw2-c">' + c.article_count + ' 篇</span></a>';
+  }).join('');
+  const pend = (WIKI_CONCEPTS && WIKI_CONCEPTS.pending_total) || 0;
+  return '<div class="tw2-nav" style="max-height:52vh;overflow:auto">' + rows + '</div>'
+    + '<div class="tw2-sum" style="margin-top:8px">' + cs.length + ' 个概念 · 已编译 '
+    + ((WIKI_CONCEPTS && WIKI_CONCEPTS.compiled) || 0) + '</div>'
+    + (pend ? '<div class="tw2-unm" style="margin:8px 0 0"><b>' + pend + ' 篇新文章待纳入</b>'
+      + '<span><code>concepts grow</code> 标记 → <code>concepts compile --force</code> 重编译</span></div>' : '');
+}
+
+function topicNavHtml(){
+  if (!TREE || !TREE.tree || !TREE.tree.length) return '';
+  const map = {};
+  TREE.tree.forEach(d => treeIndex(d, map));
+  const cur = map[WIKI_CUR] || map[TREE_CUR] || TREE.tree[0];
+  if (cur) WIKI_CUR = cur.id;
+  TREE_DOT = new Set((WIKI.pages || []).map(p => p.topic_id).filter(x => x != null));
+  const html = cur ? treeNavHtml(cur, map) : '';
+  TREE_DOT = null;                     // 只在本次渲染里生效，别漏给主题树页签
+  return html;
+}
+
+async function goWikiTopic(topicId){
+  const p = (WIKI.pages || []).find(x => x.topic_id === topicId);
+  WIKI_CUR = topicId;
+  await goWikiSlug(p ? p.slug : null);
+}
+
+async function goWikiSlug(slug){
+  await loadWikiDetail(slug);
+  paintWiki($('#view-wiki'));
+  window.scrollTo(0, 0);
+}
+
+function wikiMainHtml(){
+  if (WIKI_MODE === 'topic'){
+    if (!TREE || !TREE.tree || !TREE.tree.length) return '';
+    const map = {};
+    TREE.tree.forEach(d => treeIndex(d, map));
+    const cur = map[WIKI_CUR] || map[TREE_CUR] || TREE.tree[0];
+    if (!cur) return '';
+    const crumb = [];
+    (function up(n){ crumb.unshift(n); if (n.parent && map[n.parent]) up(map[n.parent]); })(cur);
+    return '<div class="crumb2">' + crumb.map((n,i) => i === crumb.length-1
+      ? '<b>' + esc(n.name) + '</b>' : '<a href="#" data-tnode="' + n.id + '">' + esc(n.name) + '</a>')
+      .join('<span>›</span>') + '</div>'
+      + '<h2 class="tw2-h">' + esc(cur.name)
+        + '<span class="tw2-tag">' + (cur.level === 1 ? '领域' : cur.level === 2 ? '板块' : '话题')
+        + ' · ' + cur.count + ' 篇</span></h2>'
+      + (cur.summary ? '<p class="tw2-sum">' + esc(cur.summary) + '</p>' : '')
+      + wikiTopicBodyHtml(cur);
+  }
+  const c = WIKI_D && WIKI_D.concept;
+  const title = (WIKI_D && WIKI_D.page && WIKI_D.page.title) || (c && c.name) || '概念';
+  const rel = ((WIKI_D && WIKI_D.related) || []).length
+    ? '<div class="chips" style="margin-top:16px"><span class="sub">相关概念：</span>'
+      + WIKI_D.related.map(r => '<a class="chip" href="#" data-wslug="' + attr(r.slug)
+        + '" data-wmode="concept" title="' + attr(r.label || '') + '">'
+        + esc(r.name) + '</a>').join('') + '</div>' : '';
+  const refs = (WIKI_D && WIKI_D.refs || []).length;
+  const picked = (WIKI_D && WIKI_D.page && WIKI_D.page.source_count) || 0;
+  const scope = (c && picked && c.article_count > picked)
+    ? ' · 本页取最相关的 ' + picked + ' 篇' : '';
+  const topicLink = (c && c.topic_name)
+    ? '<a class="chip" href="#" data-wmode="topic" title="去这个话题的知识页">所属话题：'
+      + esc(c.topic_name) + '</a>' : '';
+  return (c ? '<div class="wk-concept"><span class="wk-def">' + esc(c.definition || '')
+      + '</span><span class="wk-stats">' + c.article_count + ' 篇在谈' + scope + ' · '
+      + (c.link_count || 0) + ' 条互链'
+      + (c.pending ? ' · <b class="wk-pending">' + c.pending + ' 篇待纳入</b>' : '')
+      + '</span></div>' : '')
+    + '<h2 class="tw2-h">' + esc(title)
+      + (c ? '<span class="tw2-tag">概念页</span>' : '') + '</h2>'
+    + wikiBodyHtml()
+    + rel;
+}
+
+function wikiTopicBodyHtml(cur){
+  // Wiki 页只对应话题（wiki_pages.topic_id → themes.level=3）。
+  // 树上点到的可能是领域或板块 —— 那一层没有对应页面，也不能编译，
+  // 所以直说「选一个话题」，而不是给一条注定失败还看不懂为什么的命令。
+  if (cur.level !== 3){
+    const kids = (cur.children || []).length;
+    return '<div class="tw2-unm"><b>这是' + (cur.level === 1 ? '领域' : '板块') + '，Wiki 按话题编译</b>'
+      + '<span>左树里点开它下面的话题（' + kids + ' 个），编译出来才是那一层该读的东西。'
+      + '一页知识页 = 一个话题下的文章读透后的成品，领域与板块只是目录。</span></div>';
+  }
+  if (WIKI_D && WIKI_D.error){
+    return '<div class="empty">这一页读取失败：' + esc(WIKI_D.error) + '</div>';
+  }
+  if (!WIKI_D){
+    return '<div class="tw2-unm"><b>这个话题还没编译成知识页</b>'
+      + '<span>话题综述 = 把一个话题下的文章读透后写成一篇带引用的成品页。'
+      + '一次几十秒到几分钟，所以没做进界面按钮。提示词在 prompts/wiki_compile_v1.md，可改。</span>'
+      + '<div><code>.venv/bin/python scripts/wiki_build.py build t' + cur.id + ' --dry-run</code>'
+      + ' ← 先看取材<br>'
+      + '<code>.venv/bin/python scripts/wiki_build.py build t' + cur.id + '</code> ← 真编译</div></div>';
+  }
+  return wikiBodyHtml();
+}
+
+function wikiBodyHtml(){
+  if (WIKI_D && WIKI_D.error){
+    return '<div class="empty">这一页读取失败：' + esc(WIKI_D.error) + '</div>';
+  }
+  if (!WIKI_D){
+    return '<div class="empty">从左边选一个概念。</div>';
+  }
+  const p = WIKI_D.page || {};
+  // 概念页上「概念定义」和「页面摘要」经常是同一句话（两个都是 LLM 写的，
+  // 输入还都是那批文章）—— 显示两遍纯粹是冗余，所以相似时只留定义那一行。
+  const def = (WIKI_D.concept && WIKI_D.concept.definition) || '';
+  const sum = p.summary || '';
+  const dup = def && sum && sameSentence(def, sum);
+  // 归属话题链接（从概念页一键回到它所属的话题综述）。
+  // **必须定义在本函数里** —— 之前定义在 wikiMainHtml，这里引用就是
+  // ReferenceError（实测：从主题树点概念过来，页面白屏只有空态）。
+  const topicLink = (WIKI_D.concept && WIKI_D.concept.topic_name)
+    ? '<a class="chip" href="#" data-wmode="topic" title="去这个话题的知识页">所属话题：'
+      + esc(WIKI_D.concept.topic_name) + '</a>' : '';
+  return '<div class="wk-meta">'
+      + '<span class="bdg">' + esc(p.model || '?') + '</span>'
+      + '<span>提示词 ' + esc(p.prompt_version || '?') + '</span>'
+      + '<span>引用 ' + ((WIKI_D.refs || []).length) + ' / ' + (p.source_count || 0) + ' 篇</span>'
+      + '<span>构建于 ' + esc(dt(p.built_at)) + '</span>'
+      + (p.updated_at && p.updated_at !== p.built_at ? '<span>更新于 ' + esc(dt(p.updated_at)) + '</span>' : '')
+      + (p.status && p.status !== 'ok' ? '<span class="bdg warn">有文章已删除</span>' : '')
+    + '</div>'
+    + (sum && !dup ? '<p class="tw2-sum">' + esc(sum) + '</p>' : '')
+    + '<div class="md">' + (WIKI_D.content_html || '') + '</div>'
+    + wikiRefsHtml(WIKI_D.refs || [])
+    + (topicLink ? '<div class="chips" style="margin-top:12px">' + topicLink + '</div>' : '');
+}
+
+/* 两段话是不是「同一句」：去标点空白后取前 18 字比对。
+   够用了 —— 目的是别把近似重复显示两遍，不是要做语义相似度。 */
+function sameSentence(a, b){
+  const norm = s => (s || '').replace(/[\s，。、；：！？「」（）()·—\-…,.!?;:]/g, '');
+  const x = norm(a), y = norm(b);
+  if (!x || !y) return false;
+  return x.slice(0, 18) === y.slice(0, 18) || y.slice(0, 18) === x.slice(0, 18);
+}
+
+/* 概念网：canvas 手绘力导向，不引外部库（离线可用，跟标签词云一个理由）。
+   节点 = 已编译的概念，边 = 共享文章。点节点打开它的页面。 */
+function paintWikiGraph(box){
+  const g = (WIKI && WIKI.graph) || { nodes: [], edges: [] };
+  if (!g.nodes.length){
+    box.innerHTML = '<div class="empty">概念网还没有节点。<br><br>'
+      + '先编译概念页（<code>wiki_build.py concepts compile</code>），'
+      + '再织网（<code>wiki_build.py concepts link</code>）。</div>';
+    return;
+  }
+  box.innerHTML = '<div class="wk-graph-wrap">'
+    + '<div class="wk-graph-hint">拖动可调整位置 · 点节点打开它的知识页 · '
+    + g.nodes.length + ' 个概念 · ' + g.edges.length + ' 条关联</div>'
+    + '<div class="wk-graph-body">'
+    + '<canvas id="wkCanvas" class="wk-canvas" width="880" height="620"></canvas>'
+    + '<div class="wk-graph-side" id="wkGraphSide">'
+    + '<div class="empty" style="padding:20px 8px">点一个节点</div></div>'
+    + '</div></div>';
+  drawWikiGraph(g);
+}
+
+function drawWikiGraph(g){
+  const cv = $('#wkCanvas');
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  // 度数：无边的概念（孤岛）初始位置放外圈，否则会被向心力吸到中心，
+  //和有边概念挤成一团 —— 视觉上像"这些是边缘概念"，语义上也对。
+  const deg = {};
+  g.edges.forEach(e => {
+    deg[e.source] = (deg[e.source] || 0) + 1;
+    deg[e.target] = (deg[e.target] || 0) + 1;
+  });
+  let orphan = 0, total = g.nodes.length;
+  const nodes = g.nodes.map((n) => {
+    const isolated = !deg[n.id];
+    let x, y;
+    if (isolated){
+      const a = (orphan++ / Math.max(1, total - g.edges.length)) * Math.PI * 2;
+      x = W / 2 + Math.cos(a) * Math.min(W, H) * 0.44;
+      y = H / 2 + Math.sin(a) * Math.min(W, H) * 0.44;
+    } else {
+      const a = ((deg[n.id] || 0) / 7) * Math.PI * 2 + (n.id % 7);
+      x = W / 2 + Math.cos(a) * Math.min(W, H) * 0.18;
+      y = H / 2 + Math.sin(a) * Math.min(W, H) * 0.18;
+    }
+    return Object.assign({}, n, {
+      x, y, vx: 0, vy: 0, isolated: isolated,
+      r: 2.6 + Math.min(5, Math.sqrt(n.article_count || 1) * 0.8),
+    });
+  });
+  const idx = {};
+  nodes.forEach((n, i) => { idx[n.id] = i; });
+
+  // 朴素力导向：斥力 + 边的弹簧 + 向心力。
+  // 参数是调出来的 —— 之前斥力 9000 / 边长 130 会让145 个节点挤成一团、
+  // 标签叠成糊（实测截图）；现在斥力 26000、边长 78、更多迭代，散得开。
+  for (let it = 0; it < 420; it++){
+    for (let i = 0; i < nodes.length; i++){
+      for (let j = i + 1; j < nodes.length; j++){
+        const a = nodes[i], b = nodes[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let d2 = dx * dx + dy * dy;
+        // **不能用 Math.random()**：节点挤在一起时随机弹开会让每次渲染的
+        // 最终布局都不一样 —— 用户每次打开看到的是不同的网，没法形成空间记忆
+        // （概念网的价值就在「记住 Rerank 在中间偏左」）。改成由节点 id 推出的
+        // 确定性微扰：同一个 id 永远得到同一个方向。
+        if (d2 < 4){
+          const ang = ((a.id * 37 + b.id * 17) % 360) * Math.PI / 180;
+          dx = Math.cos(ang); dy = Math.sin(ang); d2 = 4;
+        }
+        const f = 34000 / d2;
+        const d = Math.sqrt(d2);
+        a.vx -= dx / d * f; a.vy -= dy / d * f;
+        b.vx += dx / d * f; b.vy += dy / d * f;
+      }
+    }
+    g.edges.forEach(e => {
+      const a = nodes[idx[e.source]], b = nodes[idx[e.target]];
+      if (!a || !b) return;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+      const f = (d - 78) * 0.06;
+      a.vx += dx / d * f; a.vy += dy / d * f;
+      b.vx -= dx / d * f; b.vy -= dy / d * f;
+    });
+    nodes.forEach(n => {
+      // 孤岛节点向心力更弱 —— 它们本来就不该被拉进网里
+      n.vx += (W / 2 - n.x) * (n.isolated ? 0.003 : 0.006);
+      n.vy += (H / 2 - n.y) * (n.isolated ? 0.003 : 0.006);
+      n.x += Math.max(-20, Math.min(20, n.vx));
+      n.y += Math.max(-20, Math.min(20, n.vy));
+      n.vx *= 0.84; n.vy *= 0.84;
+      n.x = Math.max(n.r + 6, Math.min(W - n.r - 6, n.x));
+      n.y = Math.max(n.r + 12, Math.min(H - n.r - 12, n.y));
+    });
+  }
+
+  const css = getComputedStyle(document.documentElement);
+  const cLine = css.getPropertyValue('--border').trim() || '#DEDDD6';
+  const cText = css.getPropertyValue('--text-2').trim() || '#6A6963';
+  const cNode = css.getPropertyValue('--c0').trim() || '#7E93A8';
+  const cSoft = css.getPropertyValue('--c0-soft').trim() || '#E7ECF0';
+  const cCard = '#FFFFFF';   // 与 canvas 背景一致，白描边才垫得住
+
+  let dragging = null;
+  const draw = () => {
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = cLine;
+    ctx.lineWidth = 1;
+    g.edges.forEach(e => {
+      const a = nodes[idx[e.source]], b = nodes[idx[e.target]];
+      if (!a || !b) return;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    });
+    nodes.forEach(n => {
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+      ctx.fillStyle = cSoft; ctx.fill();
+      ctx.strokeStyle = cNode; ctx.lineWidth = 1.4; ctx.stroke();
+      // **每个节点都写标签**：早先只给度数>=2 的写（为了躲重叠），
+      // 结果孤岛节点全是光秃秃的圈，用户问「有一些圈没有文字」。
+      // 圈缩小之后重叠已经缓解，白描边垫底保证压线上也读得清。
+      ctx.font = '10px -apple-system,sans-serif';
+      ctx.textAlign = 'center';
+      const label = n.name.slice(0, 9);
+      ctx.strokeStyle = cCard; ctx.lineWidth = 3;
+      ctx.strokeText(label, n.x, n.y + n.r + 11);
+      ctx.fillStyle = cText;
+      ctx.fillText(label, n.x, n.y + n.r + 11);
+    });
+  };
+  draw();
+
+  const hit = (ev) => {
+    const r = cv.getBoundingClientRect();
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    return nodes.find(n => (x - n.x) * (x - n.x) + (y - n.y) * (y - n.y) <= (n.r + 4) * (n.r + 4));
+  };
+  const sideInfo = (n) => {
+    const el = $('#wkGraphSide');
+    if (!el) return;
+    el.innerHTML = '<div class="tw2-h" style="font-size:14px">' + esc(n.name) + '</div>'
+      + '<div class="tw2-sum">' + esc(n.definition || '') + '</div>'
+      + '<div class="wk-meta"><span>' + n.article_count + ' 篇在谈</span>'
+      + '<span>' + (n.link_count || 0) + ' 条互链</span></div>'
+      + '<button class="btn primary" id="wkOpen">打开这一页</button>';
+    const b = $('#wkOpen');
+    if (b) b.onclick = () => { WIKI_MODE = 'concept'; goWikiSlug(n.page_slug); };
+  };
+  // **必须区分「点击」与「拖动」**：浏览器在拖完松手后照样触发 click，
+  // 于是拖一下节点就会跳到那一页 —— 之前就是这样，节点根本拖不动
+  //（用户反馈「点一个圈就跳转了，没法拖动着看图」）。
+  let moved = 0;
+  cv.onmousedown = (ev) => {
+    dragging = hit(ev);
+    moved = 0;
+    if (dragging) sideInfo(dragging);
+  };
+  cv.onmousemove = (ev) => {
+    if (!dragging) return;
+    const r = cv.getBoundingClientRect();
+    const nx = ev.clientX - r.left, ny = ev.clientY - r.top;
+    moved = Math.max(moved, Math.abs(nx - dragging.x) + Math.abs(ny - dragging.y));
+    dragging.x = nx; dragging.y = ny;
+    draw();
+  };
+  cv.onmouseup = () => { dragging = null; };
+  cv.onclick = (ev) => {
+    if (moved > 5) return;              // 拖过了 → 这是拖动不是点击，不跳转
+    const n = hit(ev);
+    if (n){ WIKI_MODE = 'concept'; goWikiSlug(n.page_slug); }
+  };
+  window.addEventListener('resize', draw);
+}
+
+/* 引用文献表：列与主题树的文章表完全一致（.tw2-tb + .ta-*），
+   只是多一列角标编号，并且**必须带上模型摘的原文短句** ——
+   角标只告诉你「出自第几篇」，那句话才是「凭什么」。 */
+function wikiRefsHtml(refs){
+  if (!refs.length) return '';
+  const rows = refs.map(r =>
+    '<tr><td class="wk-ord">[' + r.ord + ']</td>'
+    + '<td class="ta-t"><a href="#" data-act="detail" data-id="' + attr(r.id) + '">' + esc(r.title) + '</a>'
+    + (r.quote ? '<div class="wk-q">' + esc(r.quote) + '</div>' : '') + '</td>'
+    + '<td class="ta-m"><span class="badge">' + esc(catName(r.category)) + '</span>' + esc(r.id) + '</td>'
+    + '<td class="ta-d">' + esc(r.date || '') + '</td></tr>').join('');
+  return '<div class="tw2-arts"><div class="tw2-ah">这一页引用了 '
+    + refs.length + ' 篇<span>点标题看原文</span></div>'
+    + '<table class="tw2-tb"><thead><tr><th>编号</th><th>标题与原文摘录</th>'
+    + '<th>分类 / 编号</th><th>日期</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function findWikiTopicBySlug(slug){
+  const hit = (WIKI.pages || []).find(p => p.slug === slug);
+  return hit ? hit.topic_id : null;
+}
+
+
 /* ================================================================ 事件委托 */
 document.addEventListener('click', ev => {
   const stop = ev.target.closest('[data-stop]');
@@ -2822,6 +3432,15 @@ document.addEventListener('click', ev => {
     case 'detail':
       ev.preventDefault();
       openDetail(id);
+      break;
+
+    case 'wiki-concept':
+      // 主题树页签里点概念 → 切到 Wiki 的概念形态并打开那一页。
+      // WIKI_MODE / goWikiSlug 是模块 12 的顶层变量，这里直接可用。
+      ev.preventDefault();
+      WIKI_MODE = 'concept';
+      switchView('wiki');
+      goWikiSlug(el.dataset.wslug);
       break;
 
     case 'tag':
