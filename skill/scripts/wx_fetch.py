@@ -31,8 +31,11 @@ import html as html_mod
 import json
 import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -821,9 +824,108 @@ def save_stage(stage_root, url, url_canon, kind, title, source, author,
     return token, md, img_rel
 
 
+# ---------------------------------------------------------------- BSK 浏览器会话通道（verify_page 自动重抓）
+
+# 静态抓取撞上微信「环境异常 / 需要验证」页时，与其让人「稍后重试或换网络」
+# （批抓场景下等于整批中断），不如直接换通道：用 BSK（Browser Skill）借用户的
+# 真实浏览器开一个会话访问同一条链接 —— 真浏览器环境不触发验证，渲染后的
+# HTML 再喂回同一套 parse_page / save_stage，长链批抓一条链路走通。
+#
+# 两个已踩过的坑，都在下面处理了：
+#   ① BSK 守护进程在沙箱下起不来 —— bsk status 探测失败时**不硬试、不吞错**，
+#      把「需例外放行 / 托管后台跑 bsk daemon start --foreground」的准确指引
+#      写进失败 detail，原 verify_page 失败照常上报，不掩盖问题；
+#   ② `bsk get-html` 默认 512KB 截断 —— 微信长文 2.6MB 起步，必须显式调大，
+#      否则截断的 HTML 轻则丢正文、重则 #js_content 的闭合标签被截掉。
+BSK_MAX_HTML_BYTES = 16 * 1024 * 1024   # get-html 截断上限：显式调大（默认 512KB 不够用）
+BSK_WAIT_SECS = 3.0                     # navigate 返回 load 后再等正文挂上来
+
+
+def _run_bsk(cli, argv, timeout):
+    """跑一条 bsk 子命令。返回 (returncode, stdout)。失败带 bsk 自身报错。"""
+    try:
+        p = subprocess.run([cli] + argv, capture_output=True, text=True, timeout=timeout)
+    except Exception as e:
+        raise RuntimeError("bsk %s 执行失败：%s" % (argv[0], e))
+    return p.returncode, (p.stdout or "")
+
+
+def bsk_cli_checked():
+    """返回 bsk 可执行路径；顺带确认守护进程活着、扩展已连接。
+
+    任何一环不满足都抛 RuntimeError，**消息给的是处置指引而不是错误码** ——
+    批抓跑到半夜，人看到的第一行字就得知道下一步干什么。
+    """
+    cli = os.environ.get("BSK_BIN") or shutil.which("bsk")
+    if not cli:
+        raise RuntimeError("找不到 bsk CLI（默认装在 ~/.local/bin/bsk，或用环境变量 BSK_BIN 指定）")
+    code, out = _run_bsk(cli, ["status", "--json"], 15)
+    if code != 0:
+        raise RuntimeError(
+            "bsk 守护进程不可达。已知坑：沙箱下守护进程起不来，需例外放行 —— "
+            "在托管后台任务里跑 `bsk daemon start --foreground`，或先在沙箱外起好"
+            "守护进程再批抓（`bsk status --json` 能通即可）")
+    try:
+        info = json.loads(out)
+        if not (info.get("browsers") or []):
+            raise ValueError("no browser")
+    except ValueError:
+        raise RuntimeError(
+            "bsk 守护进程在跑，但没有浏览器扩展连接 —— 先把装有 Browser Skill "
+            "扩展的浏览器连上（`bsk doctor` 排查），再重试")
+    except Exception as e:
+        raise RuntimeError("bsk status 返回异常：%s" % e)
+    return cli
+
+
+def bsk_fetch_html(url):
+    """经 BSK 浏览器会话打开 url，取渲染后的完整 HTML。任何失败抛 RuntimeError。"""
+    cli = bsk_cli_checked()
+    code, out = _run_bsk(cli, ["session", "start", "--json", "--quiet",
+                               "--agent-name", "MyRag"], 60)
+    if code != 0:
+        raise RuntimeError("bsk session start 失败（扩展可能弹了授权确认）")
+    try:
+        sid = (json.loads(out) or {}).get("session_id")
+        if not sid:
+            raise ValueError("返回里没有 session_id")
+    except Exception as e:
+        raise RuntimeError("bsk session start 返回异常：%s" % e)
+
+    try:
+        code, out = _run_bsk(cli, ["navigate", url, "--json", "--quiet",
+                                   "--session", sid], TIMEOUT + 30)
+        if code != 0:
+            raise RuntimeError("navigate 失败")
+        time.sleep(BSK_WAIT_SECS)
+        fd, hpath = tempfile.mkstemp(suffix=".html")
+        os.close(fd)
+        try:
+            code, out = _run_bsk(cli, ["get-html", "--max-bytes", str(BSK_MAX_HTML_BYTES),
+                                       "--out", hpath, "--quiet", "--session", sid], 60)
+            if code != 0:
+                raise RuntimeError("get-html 失败")
+            with open(hpath, encoding="utf-8", errors="ignore") as f:
+                page = f.read()
+        finally:
+            os.unlink(hpath)
+        # 只挡真正空页（get-html 是渲染后的最终 HTML，小页面是合法的 ——
+        # 不能套用静态路径的 MIN_HTML_BYTES 启发式，那会把小站误报成失败）
+        if not page or len(page.encode("utf-8", "ignore")) < 512:
+            raise RuntimeError("取回的 HTML 为空或过小（%d 字节）"
+                               % len(page.encode("utf-8", "ignore")))
+        return page
+    finally:
+        # 会话无论如何都要关：不关会一直占着 Agent Window，还可能拦住后续借标签页
+        try:
+            _run_bsk(cli, ["session", "stop", sid, "--quiet"], 30)
+        except Exception:
+            pass
+
+
 # ---------------------------------------------------------------- 单条抓取
 
-def fetch_one(url, stage_root, sleep_before):
+def fetch_one(url, stage_root, sleep_before, bsk_fallback=True):
     if sleep_before:
         time.sleep(sleep_before)
     t0 = time.time()
@@ -863,6 +965,39 @@ def fetch_one(url, stage_root, sleep_before):
     if not r["ok"]:
         out["fail_reason"] = r["fail_reason"]
         out["detail"] = r["detail"]
+
+        # ---- verify_page → 自动转 BSK 浏览器会话通道重抓（2026-11-06）----
+        # 真浏览器环境不触发微信验证，取回渲染后的 HTML 喂回同一套解析/落盘。
+        # BSK 通道自身不可用（守护进程/扩展/CLI 缺失）时**不吞错**：把指引
+        # 附在 detail 里，原 verify_page 失败照常上报。
+        if r["fail_reason"] == "verify_page" and bsk_fallback:
+            try:
+                page2 = bsk_fetch_html(url)
+            except RuntimeError as e:
+                log("    → BSK 重抓未执行：%s" % e)
+                out["detail"] = "%s；BSK 浏览器通道重抓未执行：%s" % (r["detail"], e)
+                return out
+            log("    → verify_page，已转 BSK 浏览器会话重抓（%dB）"
+                % len(page2.encode("utf-8", "ignore")))
+            r2 = parse_page(page2, url, is_wx=is_wx)
+            if r2["ok"]:
+                title, source = r2["title"], r2["source"]
+                author, published = r2["author"], r2["published_at"]
+                token, md, img_rel = save_stage(
+                    stage_root, url, out["url_canon"], r2["kind"], title, source,
+                    author, published, r2["md"], r2["img_urls"], r2["notes"],
+                    fetched_by="bsk")
+                out.update({"ok": True, "title": title, "source": source,
+                            "author": author, "published_at": published,
+                            "chars": len(md), "images": len(img_rel),
+                            "token": token, "embedded": r2["notes"],
+                            "fetched_by": "bsk",
+                            "elapsed": round(time.time() - t0, 1)})
+                return out
+            # 浏览器里也还是失败（少见）：如实上报，别把人引向错误的排查方向
+            out["detail"] = (
+                "%s；BSK 浏览器通道重抓后仍失败（%s：%s）—— 稍后重试或换网络"
+                % (r["detail"], r2["fail_reason"], r2.get("detail") or ""))
         return out
 
     title, source = r["title"], r["source"]
@@ -885,9 +1020,11 @@ def main():
     ap = argparse.ArgumentParser(description="MyRag 内容抓取（零依赖）：微信文章 / 微信图片合辑 / 其他网页")
     ap.add_argument("--urls-file", required=True, help="一行一条链接，# 开头与空行忽略")
     ap.add_argument("--stage-root", default=DEFAULT_STAGE_ROOT)
-    ap.add_argument("--sleep", type=float, default=2.0, help="每条之间的间隔秒数")
+    ap.add_argument("--sleep", type=float, default=7.8, help="每条之间的间隔秒数")
     ap.add_argument("--canon-only", action="store_true",
                     help="只做 URL 规范化（纯字符串、不联网），输出 [{url, url_canon}]，供抓取前查重")
+    ap.add_argument("--no-bsk", action="store_true",
+                    help="verify_page 时不自动转 BSK 浏览器通道重抓（默认自动转）")
     args = ap.parse_args()
 
     with open(args.urls_file, encoding="utf-8") as f:
@@ -911,11 +1048,13 @@ def main():
     results = []
     for i, u in enumerate(urls, 1):
         log("[%d/%d] %s" % (i, len(urls), u[:70]))
-        r = fetch_one(u, args.stage_root, args.sleep if i > 1 else 0)
+        r = fetch_one(u, args.stage_root, args.sleep if i > 1 else 0,
+                      bsk_fallback=not args.no_bsk)
         r["idx"] = i
         if r["ok"]:
-            log("    OK  [%s] %s字 %s图 token=%s%s" % (
+            log("    OK  [%s] %s字 %s图 token=%s%s%s" % (
                 r.get("kind") or "wechat", r["chars"], r["images"], r["token"],
+                "  BSK重抓" if r.get("fetched_by") == "bsk" else "",
                 "  内嵌:" + ",".join(r["embedded"]) if r.get("embedded") else ""))
         else:
             log("    FAIL %s %s" % (r["fail_reason"], r.get("detail", "")))
